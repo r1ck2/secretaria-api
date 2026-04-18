@@ -1,0 +1,16 @@
+export { User } from "@/modules/user/user.entity";
+export { Session } from "@/modules/session/session.entity";
+export { Customer } from "@/modules/customer/customer.entity";
+export { Agent } from "@/modules/agent/agent.entity";
+export { Setting } from "@/modules/setting/setting.entity";
+export { GoogleCredential } from "@/modules/calendar/google-credential.entity";
+export { Flow } from "@/modules/flow/flow.entity";
+export { FlowSession } from "@/modules/flowEngine/flowSession.entity";
+export { Appointment } from "@/modules/appointment/appointment.entity";
+export { KanbanBoard } from "@/modules/kanban/kanban-board.entity";
+export { KanbanColumn } from "@/modules/kanban/kanban-column.entity";
+export { KanbanCard } from "@/modules/kanban/kanban-card.entity";
+export { WhatsappConnection } from "@/modules/whatsapp/whatsapp.entity";
+export { ProfessionalActiveFlow } from "@/modules/professionalFlow/professionalFlow.entity";
+export { FlowBlockedCustomer } from "@/modules/flowBlock/flowBlock.entity";
+export { AdminAgent } from "@/modules/adminAgent/adminAgent.entity";

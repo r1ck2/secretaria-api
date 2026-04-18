@@ -1,0 +1,53 @@
+{
+  "name": "allcanceagents-api",
+  "version": "1.0.0",
+  "main": "src/main.ts",
+  "description": "AllcanceAgents API - AI Agents Management Platform",
+  "author": "AllcanceAgents",
+  "license": "ISC",
+  "scripts": {
+    "dev": "dotenv -e .env.development -- tsx watch src/main.ts",
+    "start": "node dist/main.cjs",
+    "build": "rm -rf dist && tsup src/main.ts --out-dir dist --format cjs",
+    "db:migration:create": "dotenv -e .env.development -- npx sequelize-cli migration:generate --name",
+    "db:migrate": "dotenv -e .env.development -- npx sequelize-cli db:migrate",
+    "db:seed": "dotenv -e .env.development -- npx sequelize-cli db:seed:all",
+    "lint": "eslint . --ext .ts --fix",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^5.1.0",
+    "express-rate-limit": "^7.4.0",
+    "googleapis": "^144.0.0",
+    "http-status-codes": "^2.3.0",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.11.0",
+    "openai": "^6.34.0",
+    "reflect-metadata": "^0.2.2",
+    "sequelize": "^6.37.7",
+    "sequelize-typescript": "^2.1.6",
+    "uuid": "^10.0.0",
+    "zod": "^3.23.8",
+    "zod-validation-error": "^3.4.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^22.0.0",
+    "@types/uuid": "^10.0.0",
+    "dotenv-cli": "^7.4.2",
+    "prettier": "^3.3.3",
+    "tsup": "^8.2.4",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.4"
+  },
+  "engines": {
+    "node": ">=22.x"
+  }
+}

@@ -1,0 +1,26 @@
+version: "3.8"
+services:
+  node:
+    build: ./
+    image: allcanceagents-api
+    restart: always
+    ports:
+      - 2727:2727
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 1G
+        reservations:
+          cpus: "0.35"
+          memory: 512M
+      update_config:
+        parallelism: 2
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+    # environment:
+    # depends_on:
+    env_file:
+      - ./.env
