@@ -13,6 +13,6 @@ RUN rm -rf node_modules package-lock.json yarn.lock
 RUN npm i
 RUN npm run build
 
-EXPOSE 2727
+EXPOSE 2712
 
 CMD ["node", "dist/main.cjs"]

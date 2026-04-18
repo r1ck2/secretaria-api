@@ -5,7 +5,7 @@ services:
     image: clerkagents-api
     restart: always
     ports:
-      - 2727:2727
+      - 2712:2712
     deploy:
       replicas: 3
       resources:
