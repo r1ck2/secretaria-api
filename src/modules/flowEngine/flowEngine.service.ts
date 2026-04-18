@@ -14,6 +14,7 @@ import { KanbanBoard } from "@/modules/kanban/kanban-board.entity";
 import { KanbanColumn } from "@/modules/kanban/kanban-column.entity";
 import { KanbanCard } from "@/modules/kanban/kanban-card.entity";
 import { logService } from "@/modules/log/log.service";
+import { normalizePhoneNumber, getPhoneNumberVariations } from "@/utils/phoneNormalizer";
 import OpenAI from "openai";
 import { Op } from "sequelize";
 import { v4 as uuidv4 } from "uuid";
@@ -76,21 +77,40 @@ export class FlowEngineService {
     professionalUserIdOverride?: string
   ): Promise<NodeResult[]> {
 
+    // Normalize phone number (remove country code if present)
+    const phoneNormalization = normalizePhoneNumber(phoneNumber);
+    const normalizedPhone = phoneNormalization.normalized;
+
+    // Log phone normalization
+    await logService.logFlowAutomation({
+      action: "phone_normalization",
+      message: `Phone number normalized from ${phoneNumber} to ${normalizedPhone}`,
+      phone_number: normalizedPhone,
+      metadata: {
+        original_phone: phoneNumber,
+        normalized_phone: normalizedPhone,
+        full_phone: phoneNormalization.full,
+        country_code: phoneNormalization.countryCode,
+        is_valid: phoneNormalization.isValid,
+      },
+    });
+
     // Log message reception
     await logService.logFlowAutomation({
       action: "receive_message",
-      message: `Message received from ${phoneNumber}`,
-      phone_number: phoneNumber,
+      message: `Message received from ${normalizedPhone}`,
+      phone_number: normalizedPhone,
       metadata: {
         messagePreview: message.substring(0, 100),
         flowId,
         toNumber,
         professionalUserIdOverride,
+        original_phone: phoneNumber,
       },
     });
 
-    // 1. Find or create session
-    let session = await this.findActiveSession(phoneNumber);
+    // 1. Find or create session using normalized phone
+    let session = await this.findActiveSession(normalizedPhone);
 
     // ── IMPROVEMENT 1: If session is completed, restart from beginning ──────────
     if (!session) {
@@ -107,7 +127,24 @@ export class FlowEngineService {
       }
 
       // ── IMPROVEMENT 3: Verify phone is a registered customer ─────────────────
-      const customer = await Customer.findOne({ where: { phone: phoneNumber } });
+      // Try to find customer using phone number variations
+      const phoneVariations = getPhoneNumberVariations(phoneNumber);
+      const customer = await Customer.findOne({ 
+        where: { 
+          phone: { [Op.in]: phoneVariations }
+        } 
+      });
+
+      await logService.logFlowAutomation({
+        action: "customer_lookup",
+        message: `Customer lookup with phone variations`,
+        phone_number: normalizedPhone,
+        metadata: {
+          phone_variations: phoneVariations,
+          customer_found: !!customer,
+          customer_id: customer?.id,
+        },
+      });
 
       // Resolve professional's user_id
       let professionalUserId = professionalUserIdOverride || flow.user_id;
@@ -127,8 +164,8 @@ export class FlowEngineService {
         await logService.logFlowAutomation({
           level: "warn",
           action: "customer_not_found",
-          message: `Phone ${phoneNumber} not found in customer database`,
-          phone_number: phoneNumber,
+          message: `Phone ${normalizedPhone} not found in customer database`,
+          phone_number: normalizedPhone,
           user_id: professionalUserId,
           flow_id: flow.id,
         });
@@ -139,7 +176,7 @@ export class FlowEngineService {
           label: "Verificação de Cliente",
           status: "completed",
           session_id: "none",
-          context: { phone: phoneNumber },
+          context: { phone: normalizedPhone },
           output: {
             message_sent:
               "Olá! 👋 Não encontramos seu número em nosso cadastro.\n\n" +
@@ -151,28 +188,28 @@ export class FlowEngineService {
       }
 
       // ── Check if professional blocked this customer from the flow ─────────────
-      const normalizedPhone = phoneNumber.replace(/\D/g, "");
+      const normalizedPhoneDigits = normalizedPhone.replace(/\D/g, "");
       const blocked = await FlowBlockedCustomer.findOne({
-        where: { user_id: professionalUserId, phone: normalizedPhone },
+        where: { user_id: professionalUserId, phone: normalizedPhoneDigits },
       });
       if (blocked) {
         await logService.logFlowAutomation({
           level: "info",
           action: "customer_blocked",
-          message: `Customer ${phoneNumber} is blocked from flow by professional`,
-          phone_number: phoneNumber,
+          message: `Customer ${normalizedPhone} is blocked from flow by professional`,
+          phone_number: normalizedPhone,
           user_id: professionalUserId,
           flow_id: flow.id,
         });
 
-        console.log(`[FlowEngine] Flow blocked for phone=${normalizedPhone} by professional=${professionalUserId}`);
+        console.log(`[FlowEngine] Flow blocked for phone=${normalizedPhoneDigits} by professional=${professionalUserId}`);
         return [{
           node_id: "system_flow_blocked",
           node_type: "system",
           label: "Atendimento Humano",
           status: "completed",
           session_id: "none",
-          context: { phone: phoneNumber },
+          context: { phone: normalizedPhone },
           output: {
             flow_blocked: true,
             message_sent: null, // silently drop — human is handling this conversation
@@ -185,10 +222,10 @@ export class FlowEngineService {
       session = await FlowSession.create({
         flow_id: flow.id,
         customer_id: customer.id,
-        phone_number: phoneNumber,
+        phone_number: normalizedPhone,
         status: "active",
         context_json: JSON.stringify({
-          phone: phoneNumber,
+          phone: normalizedPhone,
           name: customer.name,
           message,
           user_id: professionalUserId,
@@ -206,7 +243,7 @@ export class FlowEngineService {
       await logService.logFlowAutomation({
         action: "session_created",
         message: `New session created for customer ${customer.name}`,
-        phone_number: phoneNumber,
+        phone_number: normalizedPhone,
         user_id: professionalUserId,
         flow_id: flow.id,
         session_id: session.id,
@@ -225,20 +262,25 @@ export class FlowEngineService {
         const flow = await this.resolveFlow(flowId, toNumber, professionalUserIdOverride);
         if (!flow) throw new Error("No active flow found.");
 
-        const customer = await Customer.findOne({ where: { phone: phoneNumber } });
+        const phoneVariations = getPhoneNumberVariations(phoneNumber);
+        const customer = await Customer.findOne({ 
+          where: { 
+            phone: { [Op.in]: phoneVariations }
+          } 
+        });
         const ctx = session.getContext();
 
         // ── Check block on session restart ────────────────────────────────────
-        const normalizedPhone = phoneNumber.replace(/\D/g, "");
+        const normalizedPhoneDigits = normalizedPhone.replace(/\D/g, "");
         const blocked = await FlowBlockedCustomer.findOne({
-          where: { user_id: ctx.user_id, phone: normalizedPhone },
+          where: { user_id: ctx.user_id, phone: normalizedPhoneDigits },
         });
         if (blocked) {
           await logService.logFlowAutomation({
             level: "info",
             action: "session_restart_blocked",
-            message: `Session restart blocked for customer ${phoneNumber}`,
-            phone_number: phoneNumber,
+            message: `Session restart blocked for customer ${normalizedPhone}`,
+            phone_number: normalizedPhone,
             user_id: ctx.user_id,
             session_id: session.id,
           });
@@ -249,7 +291,7 @@ export class FlowEngineService {
             label: "Atendimento Humano",
             status: "completed",
             session_id: "none",
-            context: { phone: phoneNumber },
+            context: { phone: normalizedPhone },
             output: { flow_blocked: true, message_sent: null },
           }];
         }
@@ -257,11 +299,11 @@ export class FlowEngineService {
         session = await FlowSession.create({
           flow_id: flow.id,
           customer_id: customer?.id || null,
-          phone_number: phoneNumber,
+          phone_number: normalizedPhone,
           status: "active",
           context_json: JSON.stringify({
-            phone: phoneNumber,
-            name: customer?.name || ctx.name || phoneNumber,
+            phone: normalizedPhone,
+            name: customer?.name || ctx.name || normalizedPhone,
             message,
             user_id: ctx.user_id,
             flow_id: flow.id,
@@ -272,8 +314,8 @@ export class FlowEngineService {
 
         await logService.logFlowAutomation({
           action: "session_restarted",
-          message: `Session restarted for customer ${phoneNumber}`,
-          phone_number: phoneNumber,
+          message: `Session restarted for customer ${normalizedPhone}`,
+          phone_number: normalizedPhone,
           user_id: ctx.user_id,
           flow_id: flow.id,
           session_id: session.id,

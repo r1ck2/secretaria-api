@@ -6,6 +6,7 @@ import { Customer } from "@/modules/customer/customer.entity";
 import { WhatsappConnection } from "@/modules/whatsapp/whatsapp.entity";
 import { evolutionApiService } from "@/modules/evolution/evolution.service";
 import { logService } from "@/modules/log/log.service";
+import { normalizePhoneNumber } from "@/utils/phoneNormalizer";
 
 const engineService = new FlowEngineService();
 
@@ -283,27 +284,39 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
       return res.status(200).json({ success: true, ignored: true });
     }
 
-    // Extract sender number (strip @s.whatsapp.net)
+    // Extract sender number (strip @s.whatsapp.net and normalize)
     const remoteJid: string = data.key?.remoteJid || "";
-    const fromNumber = remoteJid.replace("@s.whatsapp.net", "").replace(/\D/g, "");
+    const rawNumber = remoteJid.replace("@s.whatsapp.net", "").replace(/\D/g, "");
+    
+    // Normalize the phone number
+    const phoneNormalization = normalizePhoneNumber(rawNumber);
+    const fromNumber = phoneNormalization.normalized;
     
     await logService.logEvolution({
       action: "webhook_number_extraction",
-      message: `Extracting phone number from webhook`,
+      message: `Extracting and normalizing phone number from webhook`,
+      phone_number: fromNumber,
       metadata: {
         remoteJid,
-        fromNumber,
+        raw_number: rawNumber,
+        normalized_number: fromNumber,
+        full_number: phoneNormalization.full,
+        country_code: phoneNormalization.countryCode,
+        is_valid: phoneNormalization.isValid,
         extraction_success: !!fromNumber,
       },
     });
 
-    if (!fromNumber) {
+    if (!fromNumber || !phoneNormalization.isValid) {
       await logService.logEvolution({
         level: "warn",
         action: "webhook_invalid_number",
-        message: "Invalid or missing phone number",
+        message: "Invalid or missing phone number after normalization",
         metadata: { 
           remoteJid,
+          raw_number: rawNumber,
+          normalized_number: fromNumber,
+          is_valid: phoneNormalization.isValid,
           key_structure: data.key ? Object.keys(data.key) : null,
           full_key: data.key
         },
