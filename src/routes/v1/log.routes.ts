@@ -167,4 +167,38 @@ router.post("/logs/search", checkjwt, requireAdminMaster, async (req: Request, r
   }
 });
 
+/**
+ * DELETE /api/v1/logs/all
+ * Delete all logs (admin only)
+ */
+router.delete("/logs/all", checkjwt, requireAdminMaster, async (req: Request, res: Response) => {
+  try {
+    const { confirm } = req.body;
+    
+    if (confirm !== "DELETE_ALL_LOGS") {
+      return res.status(StatusCodes.BAD_REQUEST).json({
+        success: false,
+        message: "Confirmation required. Send { confirm: 'DELETE_ALL_LOGS' } in request body.",
+      });
+    }
+
+    // Soft delete all logs by setting status to false
+    const result = await Log.update(
+      { status: false },
+      { where: { status: true } }
+    );
+
+    return res.json({
+      success: true,
+      message: `${result[0]} logs deleted successfully.`,
+      deleted_count: result[0],
+    });
+  } catch (error: any) {
+    return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: error.message || "Error deleting all logs.",
+    });
+  }
+});
+
 export default router;
