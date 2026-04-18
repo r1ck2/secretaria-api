@@ -7,8 +7,8 @@
   "license": "ISC",
   "scripts": {
     "dev": "dotenv -e .env.development -- tsx watch src/main.ts",
-    "start": "node dist/main.cjs",
-    "build": "tsup",
+    "start": "node dist/main.js",
+    "build": "rm -rf dist && tsup src/main.ts --out-dir dist --format cjs",
     "db:migration:create": "dotenv -e .env.development -- npx sequelize-cli migration:generate --name",
     "db:migrate": "dotenv -e .env.development -- npx sequelize-cli db:migrate",
     "db:seed": "dotenv -e .env.development -- npx sequelize-cli db:seed:all",
@@ -44,6 +44,7 @@
     "@types/uuid": "^10.0.0",
     "dotenv-cli": "^7.4.2",
     "prettier": "^3.3.3",
+    "tsc-alias": "^1.8.16",
     "tsup": "^8.2.4",
     "tsx": "^4.16.2",
     "typescript": "^5.5.4"

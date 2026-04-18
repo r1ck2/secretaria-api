@@ -113,8 +113,8 @@ export async function getSession(req: Request, res: Response) {
         status: session.status,
         context: session.getContext(),
         history: session.getHistory(),
-        created_at: session.created_at,
-        updated_at: session.updated_at,
+        created_at: session.createdAt,
+        updated_at: session.updatedAt,
       },
     });
   } catch (error: any) {

@@ -104,7 +104,7 @@ export class EvolutionApiService {
 
     if (!response.ok) return "disconnected";
 
-    const data = await response.json();
+    const data = await response.json() as any;
     // Evolution returns { instance: { state: "open" | "close" | "connecting" } }
     const state = data.instance?.state || data.state || "disconnected";
     if (state === "open") return "connected";
