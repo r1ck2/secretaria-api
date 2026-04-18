@@ -7,36 +7,36 @@ import { Customer } from "@/modules/customer/customer.entity";
 export class Appointment extends Model {
   @PrimaryKey
   @Column({ type: DataType.UUID })
-  id!: string;
+  declare id: string;
 
   @ForeignKey(() => User)
   @Column({ type: DataType.UUID, allowNull: false })
-  user_id!: string;
+  declare user_id: string;
 
   @ForeignKey(() => Customer)
   @Column({ type: DataType.UUID, allowNull: true })
-  customer_id!: string;
+  declare customer_id: string;
 
   @BelongsTo(() => Customer)
-  customer!: Customer;
+  declare customer: Customer;
 
   @Column({ type: DataType.STRING(20), allowNull: false })
-  customer_phone!: string;
+  declare customer_phone: string;
 
   @Column({ type: DataType.STRING(255), allowNull: false })
-  calendar_event_id!: string;
+  declare calendar_event_id: string;
 
   @Column({ type: DataType.STRING(200), allowNull: false })
-  title!: string;
+  declare title: string;
 
   @Column({ type: DataType.DATE, allowNull: false })
-  start_at!: Date;
+  declare start_at: Date;
 
   @Column({ type: DataType.DATE, allowNull: false })
-  end_at!: Date;
+  declare end_at: Date;
 
   @Column({ type: DataType.ENUM("confirmed", "cancelled"), allowNull: false, defaultValue: "confirmed" })
-  status!: string;
+  declare status: string;
 
   @BeforeSave
   static generateUuid(a: Appointment) { if (!a.id) a.id = uuidv4(); }

@@ -9,31 +9,31 @@ export const userTypes = ["admin_master", "professional", "company"];
 export class User extends Model {
   @PrimaryKey
   @Column({ type: DataType.UUID })
-  id!: string;
+  declare id: string;
 
   @Column({ type: DataType.STRING(120), allowNull: false })
-  name!: string;
+  declare name: string;
 
   @Column({ type: DataType.STRING(180), allowNull: false, unique: true })
-  email!: string;
+  declare email: string;
 
   @Column({ type: DataType.STRING(20), allowNull: true })
-  phone!: string;
+  declare phone: string;
 
   @Column({ type: DataType.STRING(20), allowNull: true })
-  document!: string;
+  declare document: string;
 
   @Column({ type: DataType.VIRTUAL })
-  password!: string;
+  declare password: string;
 
   @Column({ type: DataType.STRING, allowNull: false })
-  password_hash!: string;
+  declare password_hash: string;
 
   @Column({ type: DataType.ENUM(...userTypes), allowNull: false, defaultValue: "professional" })
-  type!: string;
+  declare type: string;
 
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true })
-  status!: boolean;
+  declare status: boolean;
 
   @BeforeSave
   static generateUuid(user: User) {

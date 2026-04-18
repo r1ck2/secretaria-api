@@ -7,36 +7,36 @@ import { Agent } from "@/modules/agent/agent.entity";
 export class WhatsappConnection extends Model {
   @PrimaryKey
   @Column({ type: DataType.UUID })
-  id!: string;
+  declare id: string;
 
   @ForeignKey(() => User)
   @Column({ type: DataType.UUID, allowNull: false })
-  user_id!: string;
+  declare user_id: string;
 
   @BelongsTo(() => User)
-  user!: User;
+  declare user: User;
 
   @ForeignKey(() => Agent)
   @Column({ type: DataType.UUID, allowNull: true })
-  agent_id!: string;
+  declare agent_id: string;
 
   @BelongsTo(() => Agent)
-  agent!: Agent;
+  declare agent: Agent;
 
   @Column({ type: DataType.STRING(20), allowNull: true })
-  phone_number!: string;
+  declare phone_number: string;
 
   @Column({ type: DataType.STRING(100), allowNull: true })
-  evolution_instance_name!: string | null;
+  declare evolution_instance_name: string | null;
 
   @Column({ type: DataType.STRING(255), allowNull: true })
-  evolution_instance_apikey!: string | null;
+  declare evolution_instance_apikey: string | null;
 
   @Column({ type: DataType.TEXT, allowNull: true })
-  qr_code_base64!: string | null;
+  declare qr_code_base64: string | null;
 
   @Column({ type: DataType.ENUM("pending", "connected", "disconnected"), allowNull: false, defaultValue: "pending" })
-  status!: string;
+  declare status: string;
 
   @BeforeSave
   static generateUuid(conn: WhatsappConnection) {

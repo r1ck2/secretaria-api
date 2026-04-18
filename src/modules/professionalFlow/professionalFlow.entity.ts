@@ -7,21 +7,21 @@ import { Flow } from "@/modules/flow/flow.entity";
 export class ProfessionalActiveFlow extends Model {
   @PrimaryKey
   @Column({ type: DataType.UUID })
-  id!: string;
+  declare id: string;
 
   @ForeignKey(() => User)
   @Column({ type: DataType.UUID, allowNull: false, unique: true })
-  user_id!: string;
+  declare user_id: string;
 
   @BelongsTo(() => User)
-  user!: User;
+  declare user: User;
 
   @ForeignKey(() => Flow)
   @Column({ type: DataType.UUID, allowNull: false })
-  flow_id!: string;
+  declare flow_id: string;
 
   @BelongsTo(() => Flow)
-  flow!: Flow;
+  declare flow: Flow;
 
   @BeforeSave
   static generateUuid(record: ProfessionalActiveFlow) {

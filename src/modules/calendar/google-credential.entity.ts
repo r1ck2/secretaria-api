@@ -6,35 +6,32 @@ import { User } from "@/modules/user/user.entity";
 export class GoogleCredential extends Model {
   @PrimaryKey
   @Column({ type: DataType.UUID })
-  id!: string;
+  declare id: string;
 
   @ForeignKey(() => User)
   @Column({ type: DataType.UUID, allowNull: false, unique: true })
-  user_id!: string;
+  declare user_id: string;
 
   @BelongsTo(() => User)
-  user!: User;
-
-  // Parsed fields (populated from manual input OR extracted from credentials_json)
-  @Column({ type: DataType.TEXT, allowNull: false })
-  client_id!: string;
+  declare user: User;
 
   @Column({ type: DataType.TEXT, allowNull: false })
-  client_secret!: string;
+  declare client_id: string;
 
-  // Raw credentials.json uploaded by the user (stored as TEXT/JSON string)
-  @Column({ type: DataType.TEXT, allowNull: true })
-  credentials_json!: string;
-
-  // OAuth tokens (populated after OAuth callback)
-  @Column({ type: DataType.TEXT, allowNull: true })
-  access_token!: string;
+  @Column({ type: DataType.TEXT, allowNull: false })
+  declare client_secret: string;
 
   @Column({ type: DataType.TEXT, allowNull: true })
-  refresh_token!: string;
+  declare credentials_json: string;
+
+  @Column({ type: DataType.TEXT, allowNull: true })
+  declare access_token: string;
+
+  @Column({ type: DataType.TEXT, allowNull: true })
+  declare refresh_token: string;
 
   @Column({ type: DataType.BIGINT, allowNull: true })
-  expiry_date!: number;
+  declare expiry_date: number;
 
   @BeforeSave
   static generateUuid(instance: GoogleCredential) {

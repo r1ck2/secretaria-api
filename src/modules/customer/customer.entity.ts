@@ -6,32 +6,32 @@ import { User } from "@/modules/user/user.entity";
 export class Customer extends Model {
   @PrimaryKey
   @Column({ type: DataType.UUID })
-  id!: string;
+  declare id: string;
 
   @ForeignKey(() => User)
   @Column({ type: DataType.UUID, allowNull: false })
-  user_id!: string;
+  declare user_id: string;
 
   @BelongsTo(() => User)
-  user!: User;
+  declare user: User;
 
   @Column({ type: DataType.STRING(120), allowNull: false })
-  name!: string;
+  declare name: string;
 
   @Column({ type: DataType.STRING(180), allowNull: true })
-  email!: string;
+  declare email: string;
 
   @Column({ type: DataType.STRING(20), allowNull: true })
-  phone!: string;
+  declare phone: string;
 
   @Column({ type: DataType.STRING(20), allowNull: true })
-  document!: string;
+  declare document: string;
 
   @Column({ type: DataType.TEXT, allowNull: true })
-  notes!: string;
+  declare notes: string;
 
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true })
-  status!: boolean;
+  declare status: boolean;
 
   @BeforeSave
   static generateUuid(customer: Customer) {

@@ -7,37 +7,36 @@ import { AdminAgent } from "@/modules/adminAgent/adminAgent.entity";
 export class Flow extends Model {
   @PrimaryKey
   @Column({ type: DataType.UUID })
-  id!: string;
+  declare id: string;
 
   @ForeignKey(() => User)
   @Column({ type: DataType.UUID, allowNull: false })
-  user_id!: string;
+  declare user_id: string;
 
   @BelongsTo(() => User)
-  user!: User;
+  declare user: User;
 
   @Column({ type: DataType.STRING(120), allowNull: false })
-  name!: string;
+  declare name: string;
 
   @Column({ type: DataType.TEXT, allowNull: true })
-  description!: string;
+  declare description: string;
 
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true })
-  status!: boolean;
+  declare status: boolean;
 
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
-  is_visible_to_professional!: boolean;
+  declare is_visible_to_professional: boolean;
 
-  /** Optional link to an admin-managed agent — used when use_admin_agent setting is true */
   @ForeignKey(() => AdminAgent)
   @Column({ type: DataType.UUID, allowNull: true })
-  admin_agent_id!: string | null;
+  declare admin_agent_id: string | null;
 
   @BelongsTo(() => AdminAgent)
-  admin_agent!: AdminAgent;
+  declare admin_agent: AdminAgent;
 
   @Column({ type: DataType.TEXT("long"), allowNull: true })
-  flow_json!: string;
+  declare flow_json: string;
 
   @BeforeSave
   static generateUuid(flow: Flow) {

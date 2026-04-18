@@ -5,21 +5,21 @@ import { v4 as uuidv4 } from "uuid";
 export class Setting extends Model {
   @PrimaryKey
   @Column({ type: DataType.UUID })
-  id!: string;
+  declare id: string;
 
   /** null for admin-global settings */
   @Column({ type: DataType.UUID, allowNull: true })
-  user_id!: string;
+  declare user_id: string;
 
   /** true = global admin setting (user_id is null) */
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
-  is_admin!: boolean;
+  declare is_admin: boolean;
 
   @Column({ type: DataType.STRING(100), allowNull: false })
-  key!: string;
+  declare key: string;
 
   @Column({ type: DataType.TEXT, allowNull: true })
-  value!: string;
+  declare value: string;
 
   @BeforeSave
   static generateUuid(setting: Setting) {

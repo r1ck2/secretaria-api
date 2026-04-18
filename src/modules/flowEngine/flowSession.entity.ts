@@ -12,54 +12,41 @@ export type SessionStatus = "active" | "waiting_input" | "completed" | "error";
 export class FlowSession extends Model {
   @PrimaryKey
   @Column({ type: DataType.UUID })
-  id!: string;
+  declare id: string;
 
   @ForeignKey(() => Flow)
   @Column({ type: DataType.UUID, allowNull: false })
-  flow_id!: string;
+  declare flow_id: string;
 
   @BelongsTo(() => Flow)
-  flow!: Flow;
+  declare flow: Flow;
 
   @ForeignKey(() => Customer)
   @Column({ type: DataType.UUID, allowNull: true })
-  customer_id!: string;
+  declare customer_id: string;
 
   @BelongsTo(() => Customer)
-  customer!: Customer;
+  declare customer: Customer;
 
-  /** Phone number that triggered the flow */
   @Column({ type: DataType.STRING(20), allowNull: false })
-  phone_number!: string;
+  declare phone_number: string;
 
-  /** ID of the node currently being processed or waiting for input */
   @Column({ type: DataType.STRING(50), allowNull: true })
-  current_node_id!: string;
+  declare current_node_id: string;
 
-  /** active | waiting_input | completed | error */
   @Column({ type: DataType.STRING(20), allowNull: false, defaultValue: "active" })
-  status!: SessionStatus;
+  declare status: SessionStatus;
 
-  /**
-   * Accumulated context JSON — grows as nodes execute.
-   * e.g. { name, phone, intent, slots, appointment, ai_response }
-   */
   @Column({ type: DataType.TEXT("long"), allowNull: true })
-  context_json!: string;
+  declare context_json: string;
 
-  /**
-   * Full message history for the AI (Responses API previous_response_id chain).
-   * Stored as JSON array: [{ role, content, node_id, timestamp }]
-   */
   @Column({ type: DataType.TEXT("long"), allowNull: true })
-  history_json!: string;
+  declare history_json: string;
 
   @BeforeSave
   static generateUuid(s: FlowSession) {
     if (!s.id) s.id = uuidv4();
   }
-
-  // ── Helpers ──────────────────────────────────────────────────────────────────
 
   getContext(): Record<string, any> {
     try { return this.context_json ? JSON.parse(this.context_json) : {}; }

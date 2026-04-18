@@ -6,23 +6,23 @@ import { KanbanBoard } from "./kanban-board.entity";
 export class KanbanColumn extends Model {
   @PrimaryKey
   @Column({ type: DataType.UUID })
-  id!: string;
+  declare id: string;
 
   @ForeignKey(() => KanbanBoard)
   @Column({ type: DataType.UUID, allowNull: false })
-  board_id!: string;
+  declare board_id: string;
 
   @BelongsTo(() => KanbanBoard)
-  board!: KanbanBoard;
+  declare board: KanbanBoard;
 
   @Column({ type: DataType.STRING(80), allowNull: false })
-  name!: string;
+  declare name: string;
 
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
-  position!: number;
+  declare position: number;
 
   @Column({ type: DataType.STRING(20), allowNull: true })
-  color!: string;
+  declare color: string;
 
   @BeforeSave
   static generateUuid(c: KanbanColumn) { if (!c.id) c.id = uuidv4(); }

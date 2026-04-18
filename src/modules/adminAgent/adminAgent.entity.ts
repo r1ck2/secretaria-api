@@ -10,43 +10,43 @@ export const agentModels = [
 export class AdminAgent extends Model {
   @PrimaryKey
   @Column({ type: DataType.UUID })
-  id!: string;
+  declare id: string;
 
   @Column({ type: DataType.STRING(120), allowNull: false })
-  name!: string;
+  declare name: string;
 
   @Column({ type: DataType.STRING(50), allowNull: false, defaultValue: "gpt-4o-mini" })
-  model!: string;
+  declare model: string;
 
   @Column({ type: DataType.TEXT, allowNull: true })
-  system_prompt!: string;
+  declare system_prompt: string;
 
   @Column({ type: DataType.FLOAT, allowNull: false, defaultValue: 1.0 })
-  temperature!: number;
+  declare temperature: number;
 
   @Column({ type: DataType.FLOAT, allowNull: true })
-  top_p!: number;
+  declare top_p: number;
 
   @Column({ type: DataType.INTEGER, allowNull: true })
-  max_output_tokens!: number;
+  declare max_output_tokens: number;
 
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true })
-  store!: boolean;
+  declare store: boolean;
 
   @Column({ type: DataType.STRING(20), allowNull: false, defaultValue: "auto" })
-  truncation!: string;
+  declare truncation: string;
 
   @Column({ type: DataType.TEXT, allowNull: true })
-  tools_json!: string;
+  declare tools_json: string;
 
   @Column({ type: DataType.TEXT, allowNull: true })
-  metadata_json!: string;
+  declare metadata_json: string;
 
   @Column({ type: DataType.STRING(255), allowNull: true })
-  openai_api_key!: string;
+  declare openai_api_key: string;
 
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true })
-  status!: boolean;
+  declare status: boolean;
 
   @BeforeSave
   static generateUuid(agent: AdminAgent) {

@@ -6,21 +6,20 @@ import { User } from "@/modules/user/user.entity";
 export class FlowBlockedCustomer extends Model {
   @PrimaryKey
   @Column({ type: DataType.UUID })
-  id!: string;
+  declare id: string;
 
   @ForeignKey(() => User)
   @Column({ type: DataType.UUID, allowNull: false })
-  user_id!: string;
+  declare user_id: string;
 
   @BelongsTo(() => User)
-  user!: User;
+  declare user: User;
 
-  /** Phone stored normalized — digits only */
   @Column({ type: DataType.STRING(30), allowNull: false })
-  phone!: string;
+  declare phone: string;
 
   @Column({ type: DataType.STRING(255), allowNull: true })
-  reason!: string;
+  declare reason: string;
 
   @BeforeSave
   static generateUuid(record: FlowBlockedCustomer) {
