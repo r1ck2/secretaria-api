@@ -226,12 +226,17 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
       },
     });
 
-    // Only handle MESSAGES_UPSERT events
-    if (payload.event !== "MESSAGES_UPSERT") {
+    // Only handle MESSAGES_UPSERT events (support both formats)
+    const eventType = payload.event?.toUpperCase().replace(/\./g, '_');
+    if (eventType !== "MESSAGES_UPSERT") {
       await logService.logEvolution({
         action: "webhook_ignored",
         message: `Webhook ignored - event type: ${payload.event}`,
-        metadata: { event: payload.event },
+        metadata: { 
+          event: payload.event,
+          normalized_event: eventType,
+          expected: "MESSAGES_UPSERT"
+        },
       });
       return res.status(200).json({ success: true, ignored: true });
     }
@@ -242,17 +247,38 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
         level: "warn",
         action: "webhook_no_data",
         message: "Webhook received without data",
-        metadata: { payload },
+        metadata: { 
+          payload: payload,
+          payload_keys: Object.keys(payload),
+          has_data: !!payload.data
+        },
       });
       return res.status(200).json({ success: true, ignored: true });
     }
+
+    // Log the data structure for debugging
+    await logService.logEvolution({
+      action: "webhook_data_received",
+      message: "Webhook data structure received",
+      metadata: {
+        data_keys: Object.keys(data),
+        has_key: !!data.key,
+        has_message: !!data.message,
+        key_structure: data.key ? Object.keys(data.key) : null,
+        message_structure: data.message ? Object.keys(data.message) : null,
+      },
+    });
 
     // Ignore outgoing messages
     if (data.key?.fromMe === true) {
       await logService.logEvolution({
         action: "webhook_outgoing_ignored",
         message: "Outgoing message ignored",
-        metadata: { remoteJid: data.key?.remoteJid },
+        metadata: { 
+          remoteJid: data.key?.remoteJid,
+          fromMe: data.key?.fromMe,
+          key_structure: data.key ? Object.keys(data.key) : null
+        },
       });
       return res.status(200).json({ success: true, ignored: true });
     }
@@ -260,12 +286,27 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
     // Extract sender number (strip @s.whatsapp.net)
     const remoteJid: string = data.key?.remoteJid || "";
     const fromNumber = remoteJid.replace("@s.whatsapp.net", "").replace(/\D/g, "");
+    
+    await logService.logEvolution({
+      action: "webhook_number_extraction",
+      message: `Extracting phone number from webhook`,
+      metadata: {
+        remoteJid,
+        fromNumber,
+        extraction_success: !!fromNumber,
+      },
+    });
+
     if (!fromNumber) {
       await logService.logEvolution({
         level: "warn",
         action: "webhook_invalid_number",
         message: "Invalid or missing phone number",
-        metadata: { remoteJid },
+        metadata: { 
+          remoteJid,
+          key_structure: data.key ? Object.keys(data.key) : null,
+          full_key: data.key
+        },
       });
       return res.status(200).json({ success: true, ignored: true });
     }
@@ -275,12 +316,29 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
       data.message?.conversation ||
       data.message?.extendedTextMessage?.text ||
       "";
+
+    await logService.logEvolution({
+      action: "webhook_message_extraction",
+      message: `Extracting message text from webhook`,
+      phone_number: fromNumber,
+      metadata: {
+        message_structure: data.message ? Object.keys(data.message) : null,
+        has_conversation: !!data.message?.conversation,
+        has_extended_text: !!data.message?.extendedTextMessage?.text,
+        message_preview: messageText.substring(0, 100),
+        message_length: messageText.length,
+      },
+    });
+
     if (!messageText.trim()) {
       await logService.logEvolution({
         action: "webhook_empty_message",
         message: "Empty message received",
         phone_number: fromNumber,
-        metadata: { messageType: Object.keys(data.message || {}) },
+        metadata: { 
+          messageType: data.message ? Object.keys(data.message) : [],
+          full_message_object: data.message
+        },
       });
       return res.status(200).json({ success: true, ignored: true });
     }

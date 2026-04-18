@@ -318,9 +318,44 @@ export class FlowEngineService {
     // 5. Execute
     session.status = "active";
     const results: NodeResult[] = [];
+
+    // Log flow execution start
+    await logService.logFlowAutomation({
+      action: "flow_execution_start",
+      message: `Starting flow execution from node ${startNodeId}`,
+      phone_number: phoneNumber,
+      user_id: ctx.user_id,
+      flow_id: ctx.flow_id,
+      session_id: session.id,
+      metadata: {
+        start_node_id: startNodeId,
+        session_status: session.status,
+      },
+    });
+
     await this.executeFromNode(graph, startNodeId, session, results);
 
     await session.save();
+
+    // Log flow execution completion
+    await logService.logFlowAutomation({
+      action: "flow_execution_complete",
+      message: `Flow execution completed with ${results.length} nodes executed`,
+      phone_number: phoneNumber,
+      user_id: ctx.user_id,
+      flow_id: ctx.flow_id,
+      session_id: session.id,
+      metadata: {
+        nodes_executed: results.length,
+        final_session_status: session.status,
+        results_summary: results.map(r => ({ 
+          node_id: r.node_id, 
+          node_type: r.node_type, 
+          status: r.status 
+        })),
+      },
+    });
+
     return results;
   }
 
@@ -749,12 +784,44 @@ export class FlowEngineService {
     const userId: string = ctx.user_id;
     const chosenSlot = ctx.chosen_slot || ctx.slots?.[0];
 
+    await logService.logFlowAutomation({
+      action: "book_appointment_start",
+      message: `Booking appointment for customer`,
+      phone_number: ctx.phone,
+      user_id: userId,
+      flow_id: ctx.flow_id,
+      metadata: {
+        node_id: node.id,
+        chosen_slot,
+        customer_name: ctx.name,
+      },
+    });
+
     console.log("[FlowEngine] book_appointment — user_id:", userId, "| chosen_slot:", JSON.stringify(chosenSlot));
 
     if (!userId) {
+      await logService.logFlowAutomation({
+        level: "error",
+        action: "book_appointment_no_user",
+        message: "No user_id found in context for appointment booking",
+        phone_number: ctx.phone,
+        flow_id: ctx.flow_id,
+        metadata: { node_id: node.id },
+      });
+
       return { ...base, node_type: "book_appointment", status: "error", output: { error: "user_id not found in context." } };
     }
     if (!chosenSlot) {
+      await logService.logFlowAutomation({
+        level: "error",
+        action: "book_appointment_no_slot",
+        message: "No slot chosen for appointment booking",
+        phone_number: ctx.phone,
+        user_id: userId,
+        flow_id: ctx.flow_id,
+        metadata: { node_id: node.id },
+      });
+
       return { ...base, node_type: "book_appointment", status: "error", output: { error: "No slot chosen in context." } };
     }
 
@@ -797,8 +864,40 @@ export class FlowEngineService {
         source: "google_calendar",
       };
 
+      await logService.logFlowAutomation({
+        action: "book_appointment_success",
+        message: `Appointment booked successfully via Google Calendar`,
+        phone_number: ctx.phone,
+        user_id: userId,
+        flow_id: ctx.flow_id,
+        metadata: {
+          node_id: node.id,
+          event_id: event.id,
+          event_title: eventTitle,
+          appointment_start: chosenSlot.start,
+          appointment_end: chosenSlot.end,
+          customer_id: customer?.id,
+          calendar_link: event.htmlLink,
+        },
+      });
+
       return { ...base, node_type: "book_appointment", status: "executed", output: { appointment } };
     } catch (err: any) {
+      await logService.logFlowAutomation({
+        level: "error",
+        action: "book_appointment_calendar_error",
+        message: `Calendar booking failed: ${err.message}`,
+        phone_number: ctx.phone,
+        user_id: userId,
+        flow_id: ctx.flow_id,
+        error: err,
+        metadata: {
+          node_id: node.id,
+          chosen_slot,
+          error_details: err?.response?.data || null,
+        },
+      });
+
       console.error("[FlowEngine] Calendar booking FAILED:", err.message, err?.response?.data || err?.errors || "");
       return {
         ...base,
