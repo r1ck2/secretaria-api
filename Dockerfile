@@ -15,4 +15,4 @@ RUN npm run build
 
 EXPOSE 2712
 
-CMD ["node", "dist/main.cjs"]
+CMD ["node", "dist/main.js"]
