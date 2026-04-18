@@ -11,9 +11,8 @@ RUN chmod -R 777 /usr/src/app
 RUN rm -rf node_modules package-lock.json yarn.lock
 
 RUN npm i
-RUN npm run build || true
-RUN tsc-alias -p tsconfig.json || true
+RUN npm run build
 
 EXPOSE 2727
 
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/main.cjs"]
