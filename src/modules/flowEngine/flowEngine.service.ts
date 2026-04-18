@@ -77,19 +77,20 @@ export class FlowEngineService {
     professionalUserIdOverride?: string
   ): Promise<NodeResult[]> {
 
-    // Normalize phone number (remove country code if present)
+    // Normalize phone number for customer lookup only
     const phoneNormalization = normalizePhoneNumber(phoneNumber);
     const normalizedPhone = phoneNormalization.normalized;
+    const fullPhone = phoneNormalization.full; // Keep full phone with country code
 
     // Log phone normalization
     await logService.logFlowAutomation({
       action: "phone_normalization",
-      message: `Phone number normalized from ${phoneNumber} to ${normalizedPhone}`,
-      phone_number: normalizedPhone,
+      message: `Phone number normalized for lookup: ${phoneNumber} -> ${normalizedPhone}`,
+      phone_number: fullPhone,
       metadata: {
         original_phone: phoneNumber,
         normalized_phone: normalizedPhone,
-        full_phone: phoneNormalization.full,
+        full_phone: fullPhone,
         country_code: phoneNormalization.countryCode,
         is_valid: phoneNormalization.isValid,
       },
@@ -98,8 +99,8 @@ export class FlowEngineService {
     // Log message reception
     await logService.logFlowAutomation({
       action: "receive_message",
-      message: `Message received from ${normalizedPhone}`,
-      phone_number: normalizedPhone,
+      message: `Message received from ${fullPhone}`,
+      phone_number: fullPhone,
       metadata: {
         messagePreview: message.substring(0, 100),
         flowId,
@@ -109,8 +110,8 @@ export class FlowEngineService {
       },
     });
 
-    // 1. Find or create session using normalized phone
-    let session = await this.findActiveSession(normalizedPhone);
+    // 1. Find or create session using FULL phone (with country code)
+    let session = await this.findActiveSession(fullPhone);
 
     // ── IMPROVEMENT 1: If session is completed, restart from beginning ──────────
     if (!session) {
@@ -127,7 +128,7 @@ export class FlowEngineService {
       }
 
       // ── IMPROVEMENT 3: Verify phone is a registered customer ─────────────────
-      // Try to find customer using phone number variations
+      // Try to find customer using phone number variations (normalized search)
       const phoneVariations = getPhoneNumberVariations(phoneNumber);
       const customer = await Customer.findOne({ 
         where: { 
@@ -138,7 +139,7 @@ export class FlowEngineService {
       await logService.logFlowAutomation({
         action: "customer_lookup",
         message: `Customer lookup with phone variations`,
-        phone_number: normalizedPhone,
+        phone_number: fullPhone,
         metadata: {
           phone_variations: phoneVariations,
           customer_found: !!customer,
@@ -164,8 +165,8 @@ export class FlowEngineService {
         await logService.logFlowAutomation({
           level: "warn",
           action: "customer_not_found",
-          message: `Phone ${normalizedPhone} not found in customer database`,
-          phone_number: normalizedPhone,
+          message: `Phone ${fullPhone} not found in customer database`,
+          phone_number: fullPhone,
           user_id: professionalUserId,
           flow_id: flow.id,
         });
@@ -176,7 +177,7 @@ export class FlowEngineService {
           label: "Verificação de Cliente",
           status: "completed",
           session_id: "none",
-          context: { phone: normalizedPhone },
+          context: { phone: fullPhone },
           output: {
             message_sent:
               "Olá! 👋 Não encontramos seu número em nosso cadastro.\n\n" +
@@ -196,8 +197,8 @@ export class FlowEngineService {
         await logService.logFlowAutomation({
           level: "info",
           action: "customer_blocked",
-          message: `Customer ${normalizedPhone} is blocked from flow by professional`,
-          phone_number: normalizedPhone,
+          message: `Customer ${fullPhone} is blocked from flow by professional`,
+          phone_number: fullPhone,
           user_id: professionalUserId,
           flow_id: flow.id,
         });
@@ -209,7 +210,7 @@ export class FlowEngineService {
           label: "Atendimento Humano",
           status: "completed",
           session_id: "none",
-          context: { phone: normalizedPhone },
+          context: { phone: fullPhone },
           output: {
             flow_blocked: true,
             message_sent: null, // silently drop — human is handling this conversation
@@ -222,10 +223,10 @@ export class FlowEngineService {
       session = await FlowSession.create({
         flow_id: flow.id,
         customer_id: customer.id,
-        phone_number: normalizedPhone,
+        phone_number: fullPhone, // Store full phone with country code
         status: "active",
         context_json: JSON.stringify({
-          phone: normalizedPhone,
+          phone: fullPhone, // Use full phone in context
           name: customer.name,
           message,
           user_id: professionalUserId,
@@ -243,7 +244,7 @@ export class FlowEngineService {
       await logService.logFlowAutomation({
         action: "session_created",
         message: `New session created for customer ${customer.name}`,
-        phone_number: normalizedPhone,
+        phone_number: fullPhone,
         user_id: professionalUserId,
         flow_id: flow.id,
         session_id: session.id,
@@ -279,8 +280,8 @@ export class FlowEngineService {
           await logService.logFlowAutomation({
             level: "info",
             action: "session_restart_blocked",
-            message: `Session restart blocked for customer ${normalizedPhone}`,
-            phone_number: normalizedPhone,
+            message: `Session restart blocked for customer ${fullPhone}`,
+            phone_number: fullPhone,
             user_id: ctx.user_id,
             session_id: session.id,
           });
@@ -291,7 +292,7 @@ export class FlowEngineService {
             label: "Atendimento Humano",
             status: "completed",
             session_id: "none",
-            context: { phone: normalizedPhone },
+            context: { phone: fullPhone },
             output: { flow_blocked: true, message_sent: null },
           }];
         }
@@ -299,11 +300,11 @@ export class FlowEngineService {
         session = await FlowSession.create({
           flow_id: flow.id,
           customer_id: customer?.id || null,
-          phone_number: normalizedPhone,
+          phone_number: fullPhone, // Store full phone with country code
           status: "active",
           context_json: JSON.stringify({
-            phone: normalizedPhone,
-            name: customer?.name || ctx.name || normalizedPhone,
+            phone: fullPhone, // Use full phone in context
+            name: customer?.name || ctx.name || fullPhone,
             message,
             user_id: ctx.user_id,
             flow_id: flow.id,
@@ -314,8 +315,8 @@ export class FlowEngineService {
 
         await logService.logFlowAutomation({
           action: "session_restarted",
-          message: `Session restarted for customer ${normalizedPhone}`,
-          phone_number: normalizedPhone,
+          message: `Session restarted for customer ${fullPhone}`,
+          phone_number: fullPhone,
           user_id: ctx.user_id,
           flow_id: flow.id,
           session_id: session.id,

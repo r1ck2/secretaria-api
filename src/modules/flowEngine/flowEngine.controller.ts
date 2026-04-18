@@ -290,7 +290,7 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
     
     // Normalize the phone number
     const phoneNormalization = normalizePhoneNumber(rawNumber);
-    const fromNumber = phoneNormalization.normalized;
+    const fromNumber = phoneNormalization.full; // Use FULL phone with country code
     
     await logService.logEvolution({
       action: "webhook_number_extraction",
@@ -299,8 +299,8 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
       metadata: {
         remoteJid,
         raw_number: rawNumber,
-        normalized_number: fromNumber,
-        full_number: phoneNormalization.full,
+        normalized_number: phoneNormalization.normalized,
+        full_number: fromNumber,
         country_code: phoneNormalization.countryCode,
         is_valid: phoneNormalization.isValid,
         extraction_success: !!fromNumber,
@@ -315,7 +315,8 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
         metadata: { 
           remoteJid,
           raw_number: rawNumber,
-          normalized_number: fromNumber,
+          normalized_number: phoneNormalization.normalized,
+          full_number: fromNumber,
           is_valid: phoneNormalization.isValid,
           key_structure: data.key ? Object.keys(data.key) : null,
           full_key: data.key
