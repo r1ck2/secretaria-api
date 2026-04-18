@@ -26,6 +26,15 @@ export class WhatsappConnection extends Model {
   @Column({ type: DataType.STRING(20), allowNull: true })
   phone_number!: string;
 
+  @Column({ type: DataType.STRING(100), allowNull: true })
+  evolution_instance_name!: string | null;
+
+  @Column({ type: DataType.STRING(255), allowNull: true })
+  evolution_instance_apikey!: string | null;
+
+  @Column({ type: DataType.TEXT, allowNull: true })
+  qr_code_base64!: string | null;
+
   @Column({ type: DataType.ENUM("pending", "connected", "disconnected"), allowNull: false, defaultValue: "pending" })
   status!: string;
 

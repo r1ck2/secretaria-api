@@ -71,7 +71,8 @@ export class FlowEngineService {
     phoneNumber: string,
     message: string,
     flowId?: string,
-    toNumber?: string
+    toNumber?: string,
+    professionalUserIdOverride?: string
   ): Promise<NodeResult[]> {
 
     // 1. Find or create session
@@ -79,14 +80,14 @@ export class FlowEngineService {
 
     // ── IMPROVEMENT 1: If session is completed, restart from beginning ──────────
     if (!session) {
-      const flow = await this.resolveFlow(flowId, toNumber);
+      const flow = await this.resolveFlow(flowId, toNumber, professionalUserIdOverride);
       if (!flow) throw new Error("No active flow found. Please create and activate a flow first.");
 
       // ── IMPROVEMENT 3: Verify phone is a registered customer ─────────────────
       const customer = await Customer.findOne({ where: { phone: phoneNumber } });
 
       // Resolve professional's user_id
-      let professionalUserId = flow.user_id;
+      let professionalUserId = professionalUserIdOverride || flow.user_id;
       if (toNumber) {
         const conn = await WhatsappConnection.findOne({ where: { phone_number: toNumber, status: "connected" } });
         if (conn?.user_id) {
@@ -166,7 +167,7 @@ export class FlowEngineService {
         // Mark old session as archived and create fresh one
         await session.update({ status: "completed" });
 
-        const flow = await this.resolveFlow(flowId, toNumber);
+        const flow = await this.resolveFlow(flowId, toNumber, professionalUserIdOverride);
         if (!flow) throw new Error("No active flow found.");
 
         const customer = await Customer.findOne({ where: { phone: phoneNumber } });
@@ -668,6 +669,36 @@ export class FlowEngineService {
 
     session.pushHistory({ role: "assistant", content: rendered, node_id: node.id });
 
+    // ── Send via WhatsApp if Evolution API is configured ──────────────────────
+    let whatsappSent = false;
+    let whatsappProvider = "pending_integration";
+
+    try {
+      const { Setting } = await import("@/modules/setting/setting.entity");
+      const adminSettings = await Setting.findAll({ where: { is_admin: true } });
+      const adminMap = Object.fromEntries(adminSettings.map((s: any) => [s.key, s.value]));
+      const provider = adminMap.whatsapp_provider || "apibrasil";
+      whatsappProvider = provider;
+
+      if (provider === "evolution" && ctx.user_id && ctx.phone) {
+        const { WhatsappConnection } = await import("@/modules/whatsapp/whatsapp.entity");
+        const conn = await WhatsappConnection.findOne({ where: { user_id: ctx.user_id } });
+
+        if (conn?.evolution_instance_name && conn?.evolution_instance_apikey) {
+          const { evolutionApiService } = await import("@/modules/evolution/evolution.service");
+          await evolutionApiService.sendTextMessage(
+            conn.evolution_instance_name,
+            conn.evolution_instance_apikey,
+            ctx.phone,
+            rendered
+          );
+          whatsappSent = true;
+        }
+      }
+    } catch (sendErr: any) {
+      console.error("[FlowEngine] executeSendMessage — WhatsApp send failed:", sendErr.message);
+    }
+
     // If this node has no outgoing edges → it's terminal → mark session completed
     const hasNext = graph.edges.some(e => e.source === node.id);
     const status = hasNext ? "waiting_input" : "completed";
@@ -676,7 +707,7 @@ export class FlowEngineService {
       ...base,
       node_type: "send_message",
       status,
-      output: { message_sent: rendered, to: ctx.phone, whatsapp: "pending_integration" },
+      output: { message_sent: rendered, to: ctx.phone, whatsapp_sent: whatsappSent, whatsapp_provider: whatsappProvider },
     };
   }
 
@@ -1069,21 +1100,26 @@ export class FlowEngineService {
     });
   }
 
-  private async resolveFlow(flowId?: string, toNumber?: string): Promise<Flow | null> {
+  private async resolveFlow(flowId?: string, toNumber?: string, userId?: string): Promise<Flow | null> {
     if (flowId) return Flow.findByPk(flowId);
 
-    if (toNumber) {
-      // 1. Via WhatsApp connection (production path)
-      const conn = await WhatsappConnection.findOne({
-        where: { phone_number: toNumber, status: "connected" },
-      });
+    // Direct userId override (e.g. from Evolution webhook when phone_number not yet saved)
+    const directUserId = userId ?? null;
 
-      const professionalUserId = conn?.user_id ?? await (async () => {
-        // 2. Via professional's phone in cad_users (test/fallback path)
-        const { User } = await import("@/modules/user/user.entity");
-        const prof = await User.findOne({ where: { phone: toNumber, status: true } });
-        return prof?.id ?? null;
-      })();
+    if (toNumber || directUserId) {
+      let professionalUserId: string | null = directUserId;
+
+      if (!professionalUserId && toNumber) {
+        const conn = await WhatsappConnection.findOne({
+          where: { phone_number: toNumber, status: "connected" },
+        });
+
+        professionalUserId = conn?.user_id ?? await (async () => {
+          const { User } = await import("@/modules/user/user.entity");
+          const prof = await User.findOne({ where: { phone: toNumber, status: true } });
+          return prof?.id ?? null;
+        })();
+      }
 
       if (professionalUserId) {
         // 3. Prefer the professional's explicitly chosen active flow

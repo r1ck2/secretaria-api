@@ -7,7 +7,7 @@ import {
   getFreeSlots, aiProcess, bookSlot, sendWhatsapp, createTodo,
 } from "@/modules/flow/flow.mock.controller";
 import {
-  triggerFlow, getSession, resetSession,
+  triggerFlow, getSession, resetSession, triggerFlowEvolution,
 } from "@/modules/flowEngine/flowEngine.controller";
 
 const router = Router();
@@ -27,6 +27,7 @@ router.use(
 
 // ── Flow Engine Trigger (public — called by WhatsApp webhook or Postman) ──────
 router.post("/flow/trigger", triggerFlow);
+router.post("/flow/trigger/evolution", triggerFlowEvolution);
 router.get("/flow/session/:phone", checkjwt, getSession);
 router.delete("/flow/session/:phone", checkjwt, resetSession);
 

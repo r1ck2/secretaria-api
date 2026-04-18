@@ -2,7 +2,7 @@ version: "3.8"
 services:
   node:
     build: ./
-    image: allcanceagents-api
+    image: clerkagents-api
     restart: always
     ports:
       - 2727:2727

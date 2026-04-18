@@ -73,7 +73,7 @@ router.get("/settings/admin", checkjwt, requireAdminMaster, async (req: Request,
  */
 router.get("/settings/admin/public", checkjwt, async (req: Request, res: Response) => {
   try {
-    const ALLOWED_KEYS = ["use_admin_agent"];
+    const ALLOWED_KEYS = ["use_admin_agent", "whatsapp_provider"];
     const settings = await Setting.findAll({
       where: { is_admin: true, key: ALLOWED_KEYS },
     });

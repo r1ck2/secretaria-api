@@ -1,5 +1,5 @@
 {
-  "name": "allcanceagents-api",
+  "name": "clerkagents-api",
   "version": "1.0.0",
   "main": "src/main.ts",
   "description": "AllcanceAgents API - AI Agents Management Platform",
@@ -13,7 +13,8 @@
     "db:migrate": "dotenv -e .env.development -- npx sequelize-cli db:migrate",
     "db:seed": "dotenv -e .env.development -- npx sequelize-cli db:seed:all",
     "lint": "eslint . --ext .ts --fix",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "push:merge": "git push origin develop && git checkout main && git merge develop && git push origin main && git checkout develop"
   },
   "dependencies": {
     "axios": "^1.7.0",

@@ -11,6 +11,7 @@ import whatsappRoutes from "./v1/whatsapp.routes";
 import professionalFlowRoutes from "./v1/professionalFlow.routes";
 import flowBlockRoutes from "./v1/flowBlock.routes";
 import adminAgentRoutes from "./v1/adminAgent.routes";
+import evolutionRoutes from "./v1/evolution.routes";
 
 const routes = express.Router();
 
@@ -35,6 +36,7 @@ routes.use("/api/v1", whatsappRoutes);
 routes.use("/api/v1", professionalFlowRoutes);
 routes.use("/api/v1", flowBlockRoutes);
 routes.use("/api/v1", adminAgentRoutes);
+routes.use("/api/v1", evolutionRoutes);
 
 routes.use(notFoundHandler);
 
