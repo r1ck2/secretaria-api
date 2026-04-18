@@ -5,6 +5,7 @@ import { FlowSession } from "./flowSession.entity";
 import { Customer } from "@/modules/customer/customer.entity";
 import { WhatsappConnection } from "@/modules/whatsapp/whatsapp.entity";
 import { evolutionApiService } from "@/modules/evolution/evolution.service";
+import { logService } from "@/modules/log/log.service";
 
 const engineService = new FlowEngineService();
 
@@ -27,7 +28,28 @@ export async function triggerFlow(req: Request, res: Response) {
   try {
     const { phone_number, to_number, message, flow_id, slot_choice } = req.body;
 
+    // Log flow trigger start
+    await logService.logFlowAutomation({
+      action: "trigger_flow_start",
+      message: `Flow trigger initiated for phone ${phone_number}`,
+      phone_number,
+      metadata: {
+        to_number,
+        flow_id,
+        slot_choice,
+        message_preview: message?.substring(0, 100),
+      },
+    });
+
     if (!phone_number || !message) {
+      await logService.logFlowAutomation({
+        level: "warn",
+        action: "trigger_flow_validation_error",
+        message: "Missing required fields: phone_number or message",
+        phone_number,
+        metadata: { to_number, flow_id },
+      });
+
       return res.status(StatusCodes.UNPROCESSABLE_ENTITY).json({
         success: false,
         message: "phone_number and message are required.",
@@ -35,6 +57,13 @@ export async function triggerFlow(req: Request, res: Response) {
     }
 
     if (!to_number && !flow_id) {
+      await logService.logFlowAutomation({
+        level: "warn",
+        action: "trigger_flow_validation_error",
+        message: "Missing routing information: to_number or flow_id required",
+        phone_number,
+      });
+
       return res.status(StatusCodes.UNPROCESSABLE_ENTITY).json({
         success: false,
         message: "Either to_number (professional's WhatsApp number) or flow_id is required.",
@@ -55,6 +84,14 @@ export async function triggerFlow(req: Request, res: Response) {
           ctx.chosen_slot = chosen;
           session.setContext(ctx);
           await session.save();
+
+          await logService.logFlowAutomation({
+            action: "slot_choice_processed",
+            message: `Slot choice ${slot_choice} processed for session`,
+            phone_number,
+            session_id: session.id,
+            metadata: { chosen_slot: chosen },
+          });
         }
       }
     }
@@ -62,6 +99,20 @@ export async function triggerFlow(req: Request, res: Response) {
     const results = await engineService.receiveMessage(phone_number, message, flow_id, to_number);
 
     const customer = await Customer.findOne({ where: { phone: phone_number } });
+
+    // Log successful flow execution
+    await logService.logFlowAutomation({
+      action: "trigger_flow_success",
+      message: `Flow executed successfully with ${results.length} nodes`,
+      phone_number,
+      user_id: customer?.user_id,
+      metadata: {
+        nodes_executed: results.length,
+        customer_id: customer?.id,
+        routed_to: to_number,
+        results_summary: results.map(r => ({ node_type: r.node_type, status: r.status })),
+      },
+    });
 
     return res.json({
       success: true,
@@ -80,6 +131,20 @@ export async function triggerFlow(req: Request, res: Response) {
       },
     });
   } catch (error: any) {
+    // Log flow execution error
+    await logService.logFlowAutomation({
+      level: "error",
+      action: "trigger_flow_error",
+      message: `Flow execution failed: ${error.message}`,
+      phone_number: req.body.phone_number,
+      error,
+      metadata: {
+        to_number: req.body.to_number,
+        flow_id: req.body.flow_id,
+        error_details: error.stack,
+      },
+    });
+
     return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
       success: false,
       message: error.message || "Flow engine error.",
@@ -150,30 +215,75 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
   try {
     const payload = req.body;
 
+    // Log Evolution webhook received
+    await logService.logEvolution({
+      action: "webhook_received",
+      message: "Evolution webhook received",
+      metadata: {
+        event: payload.event,
+        instance: payload.instance,
+        payload_keys: Object.keys(payload),
+      },
+    });
+
     // Only handle MESSAGES_UPSERT events
     if (payload.event !== "MESSAGES_UPSERT") {
+      await logService.logEvolution({
+        action: "webhook_ignored",
+        message: `Webhook ignored - event type: ${payload.event}`,
+        metadata: { event: payload.event },
+      });
       return res.status(200).json({ success: true, ignored: true });
     }
 
     const data = payload.data;
-    if (!data) return res.status(200).json({ success: true, ignored: true });
+    if (!data) {
+      await logService.logEvolution({
+        level: "warn",
+        action: "webhook_no_data",
+        message: "Webhook received without data",
+        metadata: { payload },
+      });
+      return res.status(200).json({ success: true, ignored: true });
+    }
 
     // Ignore outgoing messages
     if (data.key?.fromMe === true) {
+      await logService.logEvolution({
+        action: "webhook_outgoing_ignored",
+        message: "Outgoing message ignored",
+        metadata: { remoteJid: data.key?.remoteJid },
+      });
       return res.status(200).json({ success: true, ignored: true });
     }
 
     // Extract sender number (strip @s.whatsapp.net)
     const remoteJid: string = data.key?.remoteJid || "";
     const fromNumber = remoteJid.replace("@s.whatsapp.net", "").replace(/\D/g, "");
-    if (!fromNumber) return res.status(200).json({ success: true, ignored: true });
+    if (!fromNumber) {
+      await logService.logEvolution({
+        level: "warn",
+        action: "webhook_invalid_number",
+        message: "Invalid or missing phone number",
+        metadata: { remoteJid },
+      });
+      return res.status(200).json({ success: true, ignored: true });
+    }
 
     // Extract message text
     const messageText: string =
       data.message?.conversation ||
       data.message?.extendedTextMessage?.text ||
       "";
-    if (!messageText.trim()) return res.status(200).json({ success: true, ignored: true });
+    if (!messageText.trim()) {
+      await logService.logEvolution({
+        action: "webhook_empty_message",
+        message: "Empty message received",
+        phone_number: fromNumber,
+        metadata: { messageType: Object.keys(data.message || {}) },
+      });
+      return res.status(200).json({ success: true, ignored: true });
+    }
 
     // Find professional's connection by instance name
     const instanceName: string = payload.instance || "";
@@ -182,9 +292,29 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
     });
 
     if (!conn) {
+      await logService.logEvolution({
+        level: "warn",
+        action: "webhook_connection_not_found",
+        message: `No connection found for instance: ${instanceName}`,
+        phone_number: fromNumber,
+        metadata: { instanceName },
+      });
       console.warn(`[Evolution Webhook] No connection found for instance: ${instanceName}`);
       return res.status(200).json({ success: true, ignored: true });
     }
+
+    // Log message processing start
+    await logService.logEvolution({
+      action: "message_processing_start",
+      message: `Processing message from ${fromNumber}`,
+      phone_number: fromNumber,
+      user_id: conn.user_id,
+      metadata: {
+        instanceName,
+        messagePreview: messageText.substring(0, 100),
+        connectionId: conn.id,
+      },
+    });
 
     // Use phone_number if available, otherwise fall back to user_id-based flow resolution
     const toNumber = conn.phone_number || undefined;
@@ -193,11 +323,9 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
     // Run flow engine — pass toNumber if available, otherwise engine will use user_id via context
     const results = await engineService.receiveMessage(fromNumber, messageText, undefined, toNumber, flowUserId);
 
-    // If no results and no toNumber, try resolving by user_id directly
-    // (flow engine already handles this via WhatsappConnection lookup)
-
     // Send each message_sent result back via Evolution
     if (conn.evolution_instance_name && conn.evolution_instance_apikey) {
+      let messagesSent = 0;
       for (const result of results) {
         const msg = result.output?.message_sent;
         if (msg && typeof msg === "string" && msg.trim()) {
@@ -208,15 +336,65 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
               fromNumber,
               msg
             );
+            messagesSent++;
+
+            await logService.logEvolution({
+              action: "message_sent",
+              message: `Message sent via Evolution API`,
+              phone_number: fromNumber,
+              user_id: conn.user_id,
+              metadata: {
+                instanceName: conn.evolution_instance_name,
+                messagePreview: msg.substring(0, 100),
+                nodeType: result.node_type,
+              },
+            });
           } catch (sendErr: any) {
+            await logService.logEvolution({
+              level: "error",
+              action: "message_send_failed",
+              message: `Failed to send message via Evolution API: ${sendErr.message}`,
+              phone_number: fromNumber,
+              user_id: conn.user_id,
+              error: sendErr,
+              metadata: {
+                instanceName: conn.evolution_instance_name,
+                nodeType: result.node_type,
+              },
+            });
             console.error("[Evolution Webhook] Failed to send message:", sendErr.message);
           }
         }
       }
+
+      // Log processing completion
+      await logService.logEvolution({
+        action: "message_processing_complete",
+        message: `Message processing completed - ${results.length} nodes executed, ${messagesSent} messages sent`,
+        phone_number: fromNumber,
+        user_id: conn.user_id,
+        metadata: {
+          nodesExecuted: results.length,
+          messagesSent,
+          instanceName,
+        },
+      });
     }
 
     return res.status(200).json({ success: true });
   } catch (error: any) {
+    // Log Evolution webhook error
+    await logService.logEvolution({
+      level: "error",
+      action: "webhook_error",
+      message: `Evolution webhook error: ${error.message}`,
+      error,
+      metadata: {
+        payload: req.body,
+        errorStack: error.stack,
+      },
+    });
+
     console.error("[Evolution Webhook] Error:", error.message);
     // Always return 200 to Evolution so it doesn't retry
     return res.status(200).json({ success: false, message: error.message });

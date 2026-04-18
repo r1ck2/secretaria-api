@@ -13,6 +13,7 @@ import { calendarRepository } from "@/modules/calendar/calendar.repository";
 import { KanbanBoard } from "@/modules/kanban/kanban-board.entity";
 import { KanbanColumn } from "@/modules/kanban/kanban-column.entity";
 import { KanbanCard } from "@/modules/kanban/kanban-card.entity";
+import { logService } from "@/modules/log/log.service";
 import OpenAI from "openai";
 import { Op } from "sequelize";
 import { v4 as uuidv4 } from "uuid";
@@ -75,13 +76,35 @@ export class FlowEngineService {
     professionalUserIdOverride?: string
   ): Promise<NodeResult[]> {
 
+    // Log message reception
+    await logService.logFlowAutomation({
+      action: "receive_message",
+      message: `Message received from ${phoneNumber}`,
+      phone_number: phoneNumber,
+      metadata: {
+        messagePreview: message.substring(0, 100),
+        flowId,
+        toNumber,
+        professionalUserIdOverride,
+      },
+    });
+
     // 1. Find or create session
     let session = await this.findActiveSession(phoneNumber);
 
     // ── IMPROVEMENT 1: If session is completed, restart from beginning ──────────
     if (!session) {
       const flow = await this.resolveFlow(flowId, toNumber, professionalUserIdOverride);
-      if (!flow) throw new Error("No active flow found. Please create and activate a flow first.");
+      if (!flow) {
+        await logService.logFlowAutomation({
+          level: "error",
+          action: "no_flow_found",
+          message: "No active flow found for message processing",
+          phone_number: phoneNumber,
+          metadata: { flowId, toNumber, professionalUserIdOverride },
+        });
+        throw new Error("No active flow found. Please create and activate a flow first.");
+      }
 
       // ── IMPROVEMENT 3: Verify phone is a registered customer ─────────────────
       const customer = await Customer.findOne({ where: { phone: phoneNumber } });
@@ -101,6 +124,15 @@ export class FlowEngineService {
 
       // If phone is not a registered customer, return a non-customer message
       if (!customer) {
+        await logService.logFlowAutomation({
+          level: "warn",
+          action: "customer_not_found",
+          message: `Phone ${phoneNumber} not found in customer database`,
+          phone_number: phoneNumber,
+          user_id: professionalUserId,
+          flow_id: flow.id,
+        });
+
         return [{
           node_id: "system_not_customer",
           node_type: "system",
@@ -124,6 +156,15 @@ export class FlowEngineService {
         where: { user_id: professionalUserId, phone: normalizedPhone },
       });
       if (blocked) {
+        await logService.logFlowAutomation({
+          level: "info",
+          action: "customer_blocked",
+          message: `Customer ${phoneNumber} is blocked from flow by professional`,
+          phone_number: phoneNumber,
+          user_id: professionalUserId,
+          flow_id: flow.id,
+        });
+
         console.log(`[FlowEngine] Flow blocked for phone=${normalizedPhone} by professional=${professionalUserId}`);
         return [{
           node_id: "system_flow_blocked",
@@ -161,6 +202,20 @@ export class FlowEngineService {
         }),
         history_json: JSON.stringify([]),
       } as any);
+
+      await logService.logFlowAutomation({
+        action: "session_created",
+        message: `New session created for customer ${customer.name}`,
+        phone_number: phoneNumber,
+        user_id: professionalUserId,
+        flow_id: flow.id,
+        session_id: session.id,
+        metadata: {
+          customer_id: customer.id,
+          customer_name: customer.name,
+          is_returning_customer: await this.hasConfirmedAppointments(customer.id, professionalUserId),
+        },
+      });
     } else {
       // ── IMPROVEMENT 1: Session completed → restart with welcome menu ──────────
       if (session.status === "completed") {
@@ -179,6 +234,15 @@ export class FlowEngineService {
           where: { user_id: ctx.user_id, phone: normalizedPhone },
         });
         if (blocked) {
+          await logService.logFlowAutomation({
+            level: "info",
+            action: "session_restart_blocked",
+            message: `Session restart blocked for customer ${phoneNumber}`,
+            phone_number: phoneNumber,
+            user_id: ctx.user_id,
+            session_id: session.id,
+          });
+
           return [{
             node_id: "system_flow_blocked",
             node_type: "system",
@@ -205,6 +269,15 @@ export class FlowEngineService {
           }),
           history_json: JSON.stringify([]),
         } as any);
+
+        await logService.logFlowAutomation({
+          action: "session_restarted",
+          message: `Session restarted for customer ${phoneNumber}`,
+          phone_number: phoneNumber,
+          user_id: ctx.user_id,
+          flow_id: flow.id,
+          session_id: session.id,
+        });
       }
     }
 
@@ -309,6 +382,20 @@ export class FlowEngineService {
     const userId: string = ctx.user_id;
     const message = ctx.last_user_message || ctx.message || "";
 
+    await logService.logFlowAutomation({
+      action: "ai_agent_start",
+      message: `AI agent node execution started`,
+      phone_number: ctx.phone,
+      user_id: userId,
+      flow_id: ctx.flow_id,
+      session_id: session.id,
+      metadata: {
+        node_id: node.id,
+        node_label: node.data.label,
+        message_preview: message.substring(0, 100),
+      },
+    });
+
     // ── Resolve which agent to use ────────────────────────────────────────────
     // Priority: use_admin_agent GLOBAL setting (is_admin=true) → admin agent linked to flow
     //           otherwise → professional's own agent
@@ -329,6 +416,20 @@ export class FlowEngineService {
         if (adminAgent?.openai_api_key) {
           resolvedAgent = adminAgent;
           console.log(`[FlowEngine] ai_agent(${node.id}) — using admin agent: ${adminAgent.name}`);
+
+          await logService.logFlowAutomation({
+            action: "ai_agent_admin_selected",
+            message: `Using admin agent: ${adminAgent.name}`,
+            phone_number: ctx.phone,
+            user_id: userId,
+            flow_id: ctx.flow_id,
+            session_id: session.id,
+            metadata: {
+              node_id: node.id,
+              admin_agent_id: adminAgent.id,
+              admin_agent_name: adminAgent.name,
+            },
+          });
         }
       }
     }
@@ -342,10 +443,34 @@ export class FlowEngineService {
       if (profAgent?.openai_api_key) {
         resolvedAgent = profAgent;
         console.log(`[FlowEngine] ai_agent(${node.id}) — using professional agent for user_id=${userId}`);
+
+        await logService.logFlowAutomation({
+          action: "ai_agent_professional_selected",
+          message: `Using professional agent`,
+          phone_number: ctx.phone,
+          user_id: userId,
+          flow_id: ctx.flow_id,
+          session_id: session.id,
+          metadata: {
+            node_id: node.id,
+            agent_id: profAgent.id,
+          },
+        });
       }
     }
 
     if (!resolvedAgent) {
+      await logService.logFlowAutomation({
+        level: "warn",
+        action: "ai_agent_fallback_mock",
+        message: `No OpenAI agent available, falling back to mock`,
+        phone_number: ctx.phone,
+        user_id: userId,
+        flow_id: ctx.flow_id,
+        session_id: session.id,
+        metadata: { node_id: node.id },
+      });
+
       console.warn(`[FlowEngine] ai_agent(${node.id}) — no agent/key available for user_id=${userId}, falling back to mock.`);
       return this.executeAiAgentMock(node, ctx, session, base);
     }
@@ -380,6 +505,22 @@ export class FlowEngineService {
       });
 
       const aiText = response.output_text || "";
+
+      await logService.logFlowAutomation({
+        action: "ai_agent_openai_success",
+        message: `OpenAI response received successfully`,
+        phone_number: ctx.phone,
+        user_id: userId,
+        flow_id: ctx.flow_id,
+        session_id: session.id,
+        metadata: {
+          node_id: node.id,
+          model: agent.model,
+          response_id: response.id,
+          response_preview: aiText.substring(0, 100),
+          input_messages_count: inputMessages.length,
+        },
+      });
 
       // Detect intent from AI response text
       // The node's system_prompt may instruct the AI to return a keyword like "agendar" or "duvida"
@@ -454,6 +595,21 @@ export class FlowEngineService {
         },
       };
     } catch (err: any) {
+      await logService.logFlowAutomation({
+        level: "error",
+        action: "ai_agent_openai_error",
+        message: `OpenAI API error: ${err.message}`,
+        phone_number: ctx.phone,
+        user_id: userId,
+        flow_id: ctx.flow_id,
+        session_id: session.id,
+        error: err,
+        metadata: {
+          node_id: node.id,
+          model: agent.model,
+        },
+      });
+
       console.error(`[FlowEngine] ai_agent(${node.id}) — OpenAI error: ${err.message}`);
       // Fallback to mock on error
       return this.executeAiAgentMock(node, ctx, session, base);
