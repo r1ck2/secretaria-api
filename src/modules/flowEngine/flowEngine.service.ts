@@ -88,9 +88,11 @@ export class FlowEngineService {
       const { LogService } = await import('@/modules/log/log.service');
 
       const ls = new LogService();
+      const { customerService: cs } = await import('@/modules/customer/customer.service');
+      const { appointmentService: as } = await import('@/modules/appointment/appointment.service');
       const orchestrator = new AIOrchestrator({
-        sessionManager: new SessionManager({ logService: ls }),
-        toolExecutor: new ToolExecutor({ logService: ls, calendarService: null, customerService: null, appointmentService: null, kanbanService: null }),
+        sessionManager: new SessionManager({ logService: ls, appointmentService: as }),
+        toolExecutor: new ToolExecutor({ logService: ls, calendarService: null, customerService: cs, appointmentService: as, kanbanService: null }),
         evolutionApiService: new EvolutionApiService(),
         logService: ls,
       });

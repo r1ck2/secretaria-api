@@ -187,12 +187,16 @@ export class SessionManager {
         ...baseContext, // Merge existing context
       };
 
-      // Try to find customer by phone
+      // Try to find customer by phone — filter by professional's user_id when available
       let customer: Customer | null = null;
       try {
-        customer = await Customer.findOne({
-          where: { phone: session.phone_number }
-        });
+        const lookupWhere: any = { phone: session.phone_number };
+        if (enrichedContext.user_id) lookupWhere.user_id = enrichedContext.user_id;
+        customer = await Customer.findOne({ where: lookupWhere });
+        // Fallback without user_id filter if not found
+        if (!customer && enrichedContext.user_id) {
+          customer = await Customer.findOne({ where: { phone: session.phone_number } });
+        }
       } catch (customerError) {
         this.log(LogAction.CONTEXT_ENRICHED, 'Customer lookup failed, continuing without customer data', {
           session_id: session.id,

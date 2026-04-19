@@ -123,7 +123,7 @@ export class AIOrchestrator {
       .filter(h => h.role === 'user' || h.role === 'assistant')
       .map(h => ({ role: h.role as 'user' | 'assistant', content: h.content }));
 
-    // 9. Call OpenAI
+    // 9. Call OpenAI — with full tool-calling loop
     this.log(LogAction.OPENAI_REQUEST, 'Calling OpenAI', {
       session_id: session.id,
       model: agent.model,
@@ -131,18 +131,114 @@ export class AIOrchestrator {
     });
 
     const toolDefinitions = this.deps.toolExecutor.getToolDefinitions();
+    const openAIParams = {
+      instructions: systemPrompt,
+      input: inputMessages,
+      tools: toolDefinitions,
+      model: agent.model,
+      temperature: agent.temperature,
+      max_output_tokens: agent.max_output_tokens ?? undefined,
+      top_p: agent.top_p ?? undefined,
+    };
 
-    let rawResponse;
+    const toolSummaries: ToolExecutionSummary[] = [];
+    let finalText: string | null = null;
+
     try {
-      rawResponse = await openAIClient.createResponse({
-        instructions: systemPrompt,
-        input: inputMessages,
-        tools: toolDefinitions,
-        model: agent.model,
-        temperature: agent.temperature,
-        max_output_tokens: agent.max_output_tokens ?? undefined,
-        top_p: agent.top_p ?? undefined,
+      // First call
+      let rawResponse = await openAIClient.createResponse(openAIParams);
+      let parsed = openAIClient.parseResponse(rawResponse);
+
+      this.log(LogAction.OPENAI_RESPONSE, 'OpenAI first response', {
+        session_id: session.id,
+        finish_reason: rawResponse.finish_reason,
+        has_tool_calls: parsed.tool_calls.length > 0,
+        output_preview: parsed.output_text?.slice(0, 100),
       });
+
+      // If the model wants to call tools, execute them and call again
+      if (parsed.tool_calls.length > 0) {
+        // Execute all tool calls and collect results
+        const toolResults: { tool_call_id: string; content: string }[] = [];
+
+        for (const toolCall of parsed.tool_calls) {
+          const toolName = toolCall.function.name;
+          const startTime = Date.now();
+
+          this.log(LogAction.TOOL_EXECUTION_START, `Executing tool: ${toolName}`, {
+            session_id: session.id,
+            tool_call_id: toolCall.id,
+          });
+
+          let resultContent = '';
+          try {
+            const args = JSON.parse(toolCall.function.arguments);
+            const result = await this.deps.toolExecutor.executeTool(toolName, args, context);
+            const elapsed = Date.now() - startTime;
+
+            toolSummaries.push({ tool_name: toolName, status: 'success', execution_time_ms: elapsed });
+
+            this.log(LogAction.TOOL_EXECUTION_COMPLETE, `Tool completed: ${toolName}`, {
+              session_id: session.id,
+              tool_call_id: toolCall.id,
+              execution_time_ms: elapsed,
+              success: result.success,
+              tool_name: toolName,
+            });
+
+            // Merge tool result data back into context
+            if (result.success && result.data) {
+              Object.assign(context, result.data);
+            }
+
+            resultContent = result.success
+              ? JSON.stringify(result.data ?? { success: true })
+              : JSON.stringify({ error: result.error });
+          } catch (err) {
+            const elapsed = Date.now() - startTime;
+            toolSummaries.push({ tool_name: toolName, status: 'error', execution_time_ms: elapsed, error: (err as Error).message });
+            this.logError(LogAction.TOOL_ERROR, err as Error, { session_id: session.id, tool_name: toolName });
+            resultContent = JSON.stringify({ error: (err as Error).message });
+          }
+
+          toolResults.push({ tool_call_id: toolCall.id, content: resultContent });
+        }
+
+        // Update context in session after all tools ran
+        await this.deps.sessionManager.updateContext(session.id, context);
+
+        // Second call — send tool results back to get the final text response
+        // Rebuild context string with updated context (slots, appointments, etc.)
+        const updatedHistory = session.getHistory() as HistoryEntry[];
+        const updatedContextString = serializeForOpenAI(context, updatedHistory);
+        const updatedSystemPrompt = this.buildSystemPrompt(agent.system_prompt, updatedContextString);
+        const updatedParams = { ...openAIParams, instructions: updatedSystemPrompt };
+
+        // The assistant message that triggered the tool calls (needed for the second call)
+        const assistantMsg = {
+          role: 'assistant' as const,
+          content: null as any,
+          tool_calls: rawResponse.tool_calls,
+        };
+
+        const secondRaw = await openAIClient.createResponseWithToolResults(
+          updatedParams,
+          assistantMsg,
+          toolResults.map(tr => ({ role: 'tool' as const, tool_call_id: tr.tool_call_id, content: tr.content }))
+        );
+        const secondParsed = openAIClient.parseResponse(secondRaw);
+
+        this.log(LogAction.OPENAI_RESPONSE, 'OpenAI second response (after tools)', {
+          session_id: session.id,
+          finish_reason: secondRaw.finish_reason,
+          output_preview: secondParsed.output_text?.slice(0, 100),
+        });
+
+        finalText = secondParsed.output_text;
+      } else {
+        // No tool calls — use the direct text response
+        finalText = parsed.output_text;
+      }
     } catch (err) {
       this.logError(LogAction.OPENAI_ERROR, err as Error, { session_id: session.id });
       const fallbackMsg = 'Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em instantes.';
@@ -150,42 +246,23 @@ export class AIOrchestrator {
       return {
         session_id: session.id,
         messages_sent: [fallbackMsg],
-        tools_executed: [],
+        tools_executed: toolSummaries,
         status: 'error',
       };
     }
 
-    const parsed = openAIClient.parseResponse(rawResponse);
-
-    this.log(LogAction.OPENAI_RESPONSE, 'OpenAI response received', {
-      session_id: session.id,
-      response_id: parsed.response_id,
-      has_tool_calls: parsed.tool_calls.length > 0,
-      output_preview: parsed.output_text?.slice(0, 100),
-    });
-
-    // 10. Execute tool calls if any
-    const toolSummaries: ToolExecutionSummary[] = [];
-    if (parsed.tool_calls.length > 0) {
-      await this.processToolCalls(parsed.tool_calls, context, session.id, toolSummaries);
-      // Re-enrich context after tool execution
-      await this.deps.sessionManager.updateContext(session.id, context);
-    }
-
-    // 11. Send AI text response via WhatsApp
+    // 10. Send final response via WhatsApp
     const messagesSent: string[] = [];
-    if (parsed.output_text) {
-      await this.sendWhatsApp(professionalUserId, normalizedPhone, parsed.output_text);
-      messagesSent.push(parsed.output_text);
-
-      // Push assistant message to history
+    if (finalText) {
+      await this.sendWhatsApp(professionalUserId, normalizedPhone, finalText);
+      messagesSent.push(finalText);
       await this.deps.sessionManager.pushMessage(session.id, {
         role: 'assistant',
-        content: parsed.output_text,
+        content: finalText,
         timestamp: new Date().toISOString(),
       });
     } else {
-      // Always ensure a response is sent — ask to repeat if no output
+      // Truly no output — ask to repeat
       const retryMsg = 'Desculpe, não consegui processar sua mensagem. Poderia repetir de outra forma?';
       await this.sendWhatsApp(professionalUserId, normalizedPhone, retryMsg);
       messagesSent.push(retryMsg);
@@ -349,56 +426,6 @@ ${contextString}`;
       if (map.working_hours_start) context.working_hours_start = map.working_hours_start;
       if (map.working_hours_end) context.working_hours_end = map.working_hours_end;
     } catch { /* non-blocking */ }
-  }
-
-  private async processToolCalls(
-    toolCalls: ToolCall[],
-    context: Record<string, any>,
-    sessionId: string,
-    summaries: ToolExecutionSummary[]
-  ): Promise<void> {
-    for (const toolCall of toolCalls) {
-      const toolName = toolCall.function.name;
-      const startTime = Date.now();
-
-      this.log(LogAction.TOOL_EXECUTION_START, `Executing tool: ${toolName}`, {
-        session_id: sessionId,
-        tool_call_id: toolCall.id,
-      });
-
-      try {
-        const args = JSON.parse(toolCall.function.arguments);
-        const result = await this.deps.toolExecutor.executeTool(toolName, args, context);
-
-        const elapsed = Date.now() - startTime;
-        summaries.push({ tool_name: toolName, status: 'success', execution_time_ms: elapsed });
-
-        this.log(LogAction.TOOL_EXECUTION_COMPLETE, `Tool completed: ${toolName}`, {
-          session_id: sessionId,
-          tool_call_id: toolCall.id,
-          execution_time_ms: elapsed,
-          success: result.success,
-          tool_name: toolName,
-        });
-
-        // Merge tool result data back into context
-        if (result.success && result.data) {
-          Object.assign(context, result.data);
-        }
-      } catch (err) {
-        const elapsed = Date.now() - startTime;
-        summaries.push({
-          tool_name: toolName,
-          status: 'error',
-          execution_time_ms: elapsed,
-          error: (err as Error).message,
-        });
-        this.logError(LogAction.TOOL_ERROR, err as Error, {
-          session_id: sessionId,
-          tool_name: toolName,
-        });
-      }
-    }
   }
 
   private async sendWhatsApp(userId: string, toPhone: string, text: string): Promise<void> {

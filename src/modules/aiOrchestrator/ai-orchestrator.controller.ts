@@ -6,16 +6,18 @@ import { EvolutionApiService } from '../evolution/evolution.service';
 import { LogService } from '../log/log.service';
 import { FlowSession, Log, Setting } from '@/entities';
 import { Op } from 'sequelize';
+import { customerService } from '../customer/customer.service';
+import { appointmentService } from '../appointment/appointment.service';
 
 // Singleton instances
 const logService = new LogService();
 const evolutionApiService = new EvolutionApiService();
-const sessionManager = new SessionManager({ logService });
+const sessionManager = new SessionManager({ logService, appointmentService });
 const toolExecutor = new ToolExecutor({
   logService,
   calendarService: null,
-  customerService: null,
-  appointmentService: null,
+  customerService,
+  appointmentService,
   kanbanService: null,
 });
 
@@ -207,7 +209,7 @@ export async function getStats(req: Request, res: Response): Promise<void> {
 
 /**
  * GET /ai-orchestrator/sessions
- * Get active AI Orchestrator sessions.
+ * Get AI Orchestrator sessions. Admin sees all, professional sees only their own.
  */
 export async function getSessions(req: Request, res: Response): Promise<void> {
   try {
@@ -215,66 +217,63 @@ export async function getSessions(req: Request, res: Response): Promise<void> {
     const limit = parseInt(req.query.limit as string) || 20;
     const offset = (page - 1) * limit;
 
+    // Determine if caller is admin or professional
+    const { userRepository } = await import('@/modules/user/user.repository');
+    const caller = await userRepository.findById(req.userId!);
+    const isAdmin = caller?.type === 'admin_master';
+
+    // Build where clause
+    const where: any = {};
+    if (!isAdmin && req.userId) {
+      where.context_json = { [Op.like]: `%"user_id":"${req.userId}"%` };
+    }
+
     const { count, rows } = await FlowSession.findAndCountAll({
+      where,
       limit,
       offset,
       order: [['updated_at', 'DESC']],
       include: [
-        {
-          association: 'customer',
-          attributes: ['name']
-        },
-        {
-          association: 'flow',
-          attributes: ['name']
-        }
-      ]
+        { association: 'customer', attributes: ['name', 'phone'] },
+        { association: 'flow', attributes: ['name'] },
+      ],
     });
 
     const sessions = rows.map((session: any) => {
       let contextPreview = '';
+      let customerNameFromCtx = '';
       try {
         const context = JSON.parse(session.context_json || '{}');
-        contextPreview = context.last_user_message || 'Sem mensagens';
-      } catch (e) {
-        contextPreview = 'Contexto inválido';
-      }
+        contextPreview = context.last_user_message || '';
+        customerNameFromCtx = context.name || context.whatsapp_sender_name || '';
+      } catch { /* */ }
 
       let messagesCount = 0;
       try {
         const history = JSON.parse(session.history_json || '[]');
         messagesCount = Array.isArray(history) ? history.length : 0;
-      } catch (e) {
-        messagesCount = 0;
-      }
+      } catch { /* */ }
 
       return {
         id: session.id,
         phone_number: session.phone_number,
-        customer_name: session.customer?.name,
-        flow_name: session.flow?.name || 'Fluxo não encontrado',
+        customer_name: session.customer?.name || customerNameFromCtx || null,
+        flow_name: session.flow?.name || 'AI Orchestrator',
         messages_count: messagesCount,
         last_message_at: session.updated_at,
-        status: 'active', // Simplified status
-        context_preview: contextPreview
+        status: session.status,
+        context_preview: contextPreview,
       };
     });
 
     res.json({
       success: true,
       data: sessions,
-      pagination: {
-        currentPage: page,
-        totalPages: Math.ceil(count / limit),
-        total: count
-      }
+      pagination: { currentPage: page, totalPages: Math.ceil(count / limit), total: count },
     });
   } catch (error: any) {
     console.error('Get sessions error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Internal server error'
-    });
+    res.status(500).json({ success: false, message: error.message || 'Internal server error' });
   }
 }
 
