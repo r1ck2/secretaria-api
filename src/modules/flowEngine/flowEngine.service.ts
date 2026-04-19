@@ -343,8 +343,35 @@ export class FlowEngineService {
       const currentCtx = session.getContext();
       if (currentCtx._reexecute_node) {
         startNodeId = session.current_node_id; // re-run same node
+        
+        await logService.logFlowAutomation({
+          action: "waiting_input_reexecute",
+          message: `Re-executing node ${session.current_node_id} due to _reexecute_node flag`,
+          phone_number: phoneNumber,
+          user_id: ctx.user_id,
+          flow_id: ctx.flow_id,
+          session_id: session.id,
+          metadata: {
+            current_node_id: session.current_node_id,
+            reexecute_flag: true,
+          },
+        });
       } else {
         startNodeId = this.getNextNodeId(graph, session.current_node_id);
+        
+        await logService.logFlowAutomation({
+          action: "waiting_input_next_node",
+          message: `Finding next node after ${session.current_node_id}`,
+          phone_number: phoneNumber,
+          user_id: ctx.user_id,
+          flow_id: ctx.flow_id,
+          session_id: session.id,
+          metadata: {
+            current_node_id: session.current_node_id,
+            next_node_id: startNodeId,
+            next_node_found: !!startNodeId,
+          },
+        });
       }
     } else {
       const triggerNode = graph.nodes.find(n => n.data.nodeType === "trigger");
@@ -353,9 +380,46 @@ export class FlowEngineService {
     }
 
     if (!startNodeId) {
+      // ── IMPROVEMENT: Handle case where no next node is found ────────────────
+      // This can happen if:
+      // 1. Current node has no outgoing edges
+      // 2. Conditional node has no matching branch
+      // 3. Flow graph is malformed
+      
+      await logService.logFlowAutomation({
+        level: "warn",
+        action: "no_next_node_found",
+        message: `No next node found after ${session.current_node_id}, completing session`,
+        phone_number: phoneNumber,
+        user_id: ctx.user_id,
+        flow_id: ctx.flow_id,
+        session_id: session.id,
+        metadata: {
+          current_node_id: session.current_node_id,
+          session_status: session.status,
+          graph_edges_count: graph.edges.length,
+          edges_from_current: graph.edges.filter(e => e.source === session.current_node_id).length,
+        },
+      });
+      
       session.status = "completed";
       await session.save();
-      return [];
+      
+      // Return a fallback message to the customer instead of empty array
+      return [{
+        node_id: "system_no_next_node",
+        node_type: "system",
+        label: "Fallback - No Next Node",
+        status: "completed",
+        session_id: session.id,
+        context: ctx,
+        output: {
+          message_sent:
+            "Desculpe, não consegui processar sua mensagem. 😔\n\n" +
+            "Por favor, digite 'menu' para ver as opções disponíveis ou entre em contato com nossa equipe.",
+          no_next_node: true,
+        },
+      }];
     }
 
     // 5. Execute
@@ -967,35 +1031,12 @@ export class FlowEngineService {
 
     session.pushHistory({ role: "assistant", content: rendered, node_id: node.id });
 
-    // ── Send via WhatsApp if Evolution API is configured ──────────────────────
-    let whatsappSent = false;
-    let whatsappProvider = "pending_integration";
-
-    try {
-      const { Setting } = await import("@/modules/setting/setting.entity");
-      const adminSettings = await Setting.findAll({ where: { is_admin: true } });
-      const adminMap = Object.fromEntries(adminSettings.map((s: any) => [s.key, s.value]));
-      const provider = adminMap.whatsapp_provider || "apibrasil";
-      whatsappProvider = provider;
-
-      if (provider === "evolution" && ctx.user_id && ctx.phone) {
-        const { WhatsappConnection } = await import("@/modules/whatsapp/whatsapp.entity");
-        const conn = await WhatsappConnection.findOne({ where: { user_id: ctx.user_id } });
-
-        if (conn?.evolution_instance_name && conn?.evolution_instance_apikey) {
-          const { evolutionApiService } = await import("@/modules/evolution/evolution.service");
-          await evolutionApiService.sendTextMessage(
-            conn.evolution_instance_name,
-            conn.evolution_instance_apikey,
-            ctx.phone,
-            rendered
-          );
-          whatsappSent = true;
-        }
-      }
-    } catch (sendErr: any) {
-      console.error("[FlowEngine] executeSendMessage — WhatsApp send failed:", sendErr.message);
-    }
+    // ── REMOVED: WhatsApp sending logic ───────────────────────────────────────
+    // Messages are now sent ONLY by the controller (triggerFlowEvolution)
+    // This prevents duplicate messages from being sent twice:
+    // 1. Once here in executeSendMessage
+    // 2. Once in the controller loop
+    // The controller will read message_sent from the output and send it via Evolution API
 
     // If this node has no outgoing edges → it's terminal → mark session completed
     const hasNext = graph.edges.some(e => e.source === node.id);
@@ -1005,7 +1046,7 @@ export class FlowEngineService {
       ...base,
       node_type: "send_message",
       status,
-      output: { message_sent: rendered, to: ctx.phone, whatsapp_sent: whatsappSent, whatsapp_provider: whatsappProvider },
+      output: { message_sent: rendered, to: ctx.phone },
     };
   }
 
