@@ -31,12 +31,12 @@ const orchestrator = new AIOrchestrator({
  * Receives incoming WhatsApp messages and processes them through the AI orchestrator.
  */
 export async function webhookHandler(req: Request, res: Response): Promise<void> {
-  const { phoneNumber, message, flowId, toNumber, professionalUserId } = req.body;
+  const { phoneNumber, message, flowId, toNumber, professionalUserId, senderName } = req.body;
 
   // Basic validation
-  if (!phoneNumber || !message || !flowId || !professionalUserId) {
+  if (!phoneNumber || !message || !professionalUserId) {
     res.status(400).json({
-      error: 'Missing required fields: phoneNumber, message, flowId, professionalUserId',
+      error: 'Missing required fields: phoneNumber, message, professionalUserId',
     });
     return;
   }
@@ -48,6 +48,7 @@ export async function webhookHandler(req: Request, res: Response): Promise<void>
       flowId,
       toNumber: toNumber || phoneNumber,
       professionalUserId,
+      senderName,
     });
 
     res.status(200).json(result);

@@ -87,11 +87,22 @@ export class CancelAppointmentTool extends AbstractTool {
         throw new Error('Agendamento não encontrado ou não pertence a este cliente.');
       }
 
-      // Delete from Google Calendar
-      await this.calendarService.deleteEvent({
-        userId: context.user_id,
-        eventId: appointment.calendar_event_id,
-      });
+      // Delete from Google Calendar only if enabled
+      const useGoogleCalendar = (context as any).use_google_calendar !== false;
+      if (useGoogleCalendar && this.calendarService && appointment.calendar_event_id !== 'local_only') {
+        try {
+          await this.calendarService.deleteEvent({
+            userId: context.user_id,
+            eventId: appointment.calendar_event_id,
+          });
+        } catch (calErr: any) {
+          // Non-fatal — still cancel locally
+          this.log(LogAction.TOOL_ERROR, 'Google Calendar delete failed (non-fatal)', {
+            appointment_id: appointmentId,
+            error: calErr.message,
+          });
+        }
+      }
 
       // Update status to cancelled (soft delete)
       await this.appointmentService.updateStatus(appointmentId, 'cancelled');

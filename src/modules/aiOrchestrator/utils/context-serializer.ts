@@ -36,9 +36,16 @@ export interface SerializedContext {
 export function serializeForOpenAI(context: SessionContext, history?: HistoryEntry[]): string {
   const parts: string[] = [];
 
+  // Professional / company info
+  const ctx = context as any;
+  if (ctx.company_name) {
+    parts.push(`[EMPRESA]\nNome: ${ctx.company_name}`);
+  }
+
   // Customer info
   const customerLines: string[] = [];
   if (context.name) customerLines.push(`Nome: ${context.name}`);
+  else if ((context as any).whatsapp_sender_name) customerLines.push(`Nome (WhatsApp): ${(context as any).whatsapp_sender_name}`);
   customerLines.push(`Telefone: ${context.phone}`);
   if (context.email) customerLines.push(`Email: ${context.email}`);
   customerLines.push(`Cliente recorrente: ${context.is_returning_customer ? 'Sim' : 'Não'}`);
@@ -52,6 +59,20 @@ export function serializeForOpenAI(context: SessionContext, history?: HistoryEnt
     convLines.push(`Última mensagem: ${context.last_user_message}`);
   }
   parts.push(`[CONVERSA]\n${convLines.join('\n')}`);
+
+  // Working hours / availability constraints
+  if (ctx.working_days || ctx.working_hours_start) {
+    const availLines: string[] = [];
+    if (ctx.working_days && Array.isArray(ctx.working_days)) {
+      availLines.push(`Dias disponíveis: ${ctx.working_days.join(', ')}`);
+    }
+    if (ctx.working_hours_start && ctx.working_hours_end) {
+      availLines.push(`Horário: ${ctx.working_hours_start} às ${ctx.working_hours_end}`);
+    }
+    if (availLines.length > 0) {
+      parts.push(`[DISPONIBILIDADE]\n${availLines.join('\n')}`);
+    }
+  }
 
   // Available slots
   if (context.slots && context.slots.length > 0) {

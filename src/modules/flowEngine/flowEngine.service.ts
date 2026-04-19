@@ -74,7 +74,8 @@ export class FlowEngineService {
     message: string,
     flowId?: string,
     toNumber?: string,
-    professionalUserIdOverride?: string
+    professionalUserIdOverride?: string,
+    senderName?: string
   ): Promise<NodeResult[]> {
 
     // ── Feature toggle: delegate to AI Orchestrator if enabled ────────────────
@@ -100,6 +101,7 @@ export class FlowEngineService {
         flowId: flowId,
         toNumber: toNumber || phoneNumber,
         professionalUserId: professionalUserIdOverride || '',
+        senderName,
       });
 
       // Return a compatible NodeResult array

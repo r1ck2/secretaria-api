@@ -41,22 +41,37 @@ export class BookAppointmentTool extends AbstractTool {
         throw new Error('Cliente não encontrado. Execute register_customer primeiro.');
       }
 
-      // Create event in Google Calendar
-      const calendarEvent = await this.calendarService.createEvent({
-        userId: context.user_id,
-        title: `Consulta - ${context.name || 'Cliente'}`,
-        description: `Agendamento via WhatsApp\nCliente: ${context.name || 'N/A'}\nTelefone: ${context.phone}`,
-        start: chosenSlot.start,
-        end: chosenSlot.end,
-        attendees: context.email ? [{ email: context.email }] : [],
-      });
+      // Build appointment title with service type if configured
+      const serviceType = (context as any).service_type;
+      const baseTitle = `${context.name || 'Cliente'}`;
+      const appointmentTitle = serviceType && serviceType !== 'default'
+        ? `${baseTitle} (${serviceType})`
+        : baseTitle;
+
+      // Check if Google Calendar is enabled for this professional
+      const useGoogleCalendar = (context as any).use_google_calendar !== false;
+
+      let calendarEventId = 'local_only';
+
+      if (useGoogleCalendar && this.calendarService) {
+        // Create event in Google Calendar
+        const calendarEvent = await this.calendarService.createEvent({
+          userId: context.user_id,
+          title: appointmentTitle,
+          description: `Agendamento via WhatsApp\nCliente: ${context.name || 'N/A'}\nTelefone: ${context.phone}`,
+          start: chosenSlot.start,
+          end: chosenSlot.end,
+          attendees: context.email ? [{ email: context.email }] : [],
+        });
+        calendarEventId = calendarEvent.id;
+      }
 
       // Persist appointment locally
       const appointment = await this.appointmentService.create({
         customer_id: context.customer_id,
         user_id: context.user_id,
-        calendar_event_id: calendarEvent.id,
-        title: `Consulta - ${context.name || 'Cliente'}`,
+        calendar_event_id: calendarEventId,
+        title: appointmentTitle,
         start_at: chosenSlot.start,
         end_at: chosenSlot.end,
         status: 'confirmed',
@@ -67,7 +82,7 @@ export class BookAppointmentTool extends AbstractTool {
         user_id: context.user_id,
         phone: context.phone,
         appointment_id: appointment.id,
-        calendar_event_id: calendarEvent.id,
+        calendar_event_id: calendarEventId,
         slot_index,
       });
 
@@ -77,9 +92,10 @@ export class BookAppointmentTool extends AbstractTool {
         customer_id: context.customer_id,
         user_id: context.user_id,
         phone_number: context.phone,
-        calendar_event_id: calendarEvent.id,
+        calendar_event_id: calendarEventId,
         start_time: chosenSlot.start,
         end_time: chosenSlot.end,
+        google_calendar_used: useGoogleCalendar,
       });
 
       return {

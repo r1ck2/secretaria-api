@@ -25,6 +25,7 @@ export interface ReceiveMessageParams {
   flowId?: string;
   toNumber: string;
   professionalUserId: string;
+  senderName?: string; // Name from WhatsApp API if available
 }
 
 export interface AIOrchestratordDependencies {
@@ -42,7 +43,7 @@ export class AIOrchestrator {
    * Main entry point — receives a WhatsApp message and orchestrates the AI response.
    */
   async receiveMessage(params: ReceiveMessageParams): Promise<OrchestratorResult> {
-    const { phoneNumber, message, flowId, toNumber, professionalUserId } = params;
+    const { phoneNumber, message, flowId, toNumber, professionalUserId, senderName } = params;
     const normalizedPhone = normalizePhone(phoneNumber);
 
     this.log(LogAction.MESSAGE_RECEIVED, 'Message received', {
@@ -84,16 +85,26 @@ export class AIOrchestrator {
     // 4. Enrich context
     const context = await this.deps.sessionManager.enrichContext(session);
 
-    // 5. Select agent (admin or professional)
+    // If sender name from WhatsApp is available and customer not yet registered, store it
+    if (senderName && !context.name) {
+      context.whatsapp_sender_name = senderName as any;
+    }
+
+    // Enrich with professional settings (company_name, etc.)
+    await this.enrichWithProfessionalSettings(context, professionalUserId);
+
+    // 5. Select agent — prefer professional's selected agent, then admin agent
     const agent = await this.selectAgent(flowId, professionalUserId);
     if (!agent) {
       this.logError(LogAction.AGENT_SELECTED, new Error('No agent configured'), {
         flow_id: flowId,
         user_id: professionalUserId,
       });
+      const noAgentMsg = 'Olá! Estou temporariamente indisponível. Por favor, tente novamente em instantes.';
+      await this.sendWhatsApp(professionalUserId, normalizedPhone, noAgentMsg);
       return {
         session_id: session.id,
-        messages_sent: [],
+        messages_sent: [noAgentMsg],
         tools_executed: [],
         status: 'error',
       };
@@ -173,6 +184,16 @@ export class AIOrchestrator {
         content: parsed.output_text,
         timestamp: new Date().toISOString(),
       });
+    } else {
+      // Always ensure a response is sent — ask to repeat if no output
+      const retryMsg = 'Desculpe, não consegui processar sua mensagem. Poderia repetir de outra forma?';
+      await this.sendWhatsApp(professionalUserId, normalizedPhone, retryMsg);
+      messagesSent.push(retryMsg);
+      await this.deps.sessionManager.pushMessage(session.id, {
+        role: 'assistant',
+        content: retryMsg,
+        timestamp: new Date().toISOString(),
+      });
     }
 
     return {
@@ -198,6 +219,24 @@ export class AIOrchestrator {
 
   private async selectAgent(flowId: string | undefined, userId: string): Promise<Agent | AdminAgent | null> {
     try {
+      // Check if professional has a selected agent configured
+      const selectedAgentSetting = await Setting.findOne({
+        where: { user_id: userId, key: 'selected_agent_id' },
+      });
+
+      if (selectedAgentSetting?.value) {
+        const selectedAdminAgent = await AdminAgent.findOne({
+          where: { id: selectedAgentSetting.value, status: true },
+        });
+        if (selectedAdminAgent?.openai_api_key) {
+          this.log(LogAction.AGENT_SELECTED, 'Using professional-selected admin agent', {
+            agent_id: selectedAdminAgent.id,
+            user_id: userId,
+          });
+          return selectedAdminAgent;
+        }
+      }
+
       // When AI Orchestrator is active (no flowId), use the first active AdminAgent directly
       if (!flowId) {
         const adminAgent = await AdminAgent.findOne({
@@ -255,6 +294,21 @@ export class AIOrchestrator {
 
   private buildSystemPrompt(agentPrompt: string, contextString: string): string {
     return `${agentPrompt}\n\n---\n\n${contextString}`;
+  }
+
+  private async enrichWithProfessionalSettings(context: Record<string, any>, userId: string): Promise<void> {
+    try {
+      const settings = await Setting.findAll({ where: { user_id: userId } });
+      const map = Object.fromEntries(settings.map((s: any) => [s.key, s.value]));
+      if (map.company_name) context.company_name = map.company_name;
+      if (map.use_google_calendar !== undefined) context.use_google_calendar = map.use_google_calendar !== 'false';
+      if (map.service_type) context.service_type = map.service_type;
+      if (map.working_days) {
+        try { context.working_days = JSON.parse(map.working_days); } catch { /* ignore */ }
+      }
+      if (map.working_hours_start) context.working_hours_start = map.working_hours_start;
+      if (map.working_hours_end) context.working_hours_end = map.working_hours_end;
+    } catch { /* non-blocking */ }
   }
 
   private async processToolCalls(

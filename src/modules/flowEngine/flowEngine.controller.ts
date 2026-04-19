@@ -409,6 +409,12 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
       return res.status(200).json({ success: true, ignored: true });
     }
 
+    // Extract sender name from WhatsApp payload if available
+    const senderName: string =
+      data.pushName ||
+      data.key?.pushName ||
+      "";
+
     // Find professional's connection by instance name
     const instanceName: string = payload.instance || "";
     const conn = await WhatsappConnection.findOne({
@@ -445,7 +451,7 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
     const flowUserId = conn.user_id;
 
     // Run flow engine — pass toNumber if available, otherwise engine will use user_id via context
-    const results = await engineService.receiveMessage(fromNumber, messageText, undefined, toNumber, flowUserId);
+    const results = await engineService.receiveMessage(fromNumber, messageText, undefined, toNumber, flowUserId, senderName || undefined);
 
     // AI Orchestrator handles sending internally — just log and return
     if (results.length === 1 && results[0].node_type === 'ai_orchestrator') {
