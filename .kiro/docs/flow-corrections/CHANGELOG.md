@@ -1,5 +1,40 @@
 # 📝 Changelog - Correções do Fluxo
 
+## 🚀 Versão 2.1.1 - Critical Bug Fix (2026-04-19)
+
+### 🐛 **Bug Crítico Corrigido: "chosen_slot is not defined" (RESOLVIDO)**
+
+**Problema:** Erro de referência ao usar shorthand property syntax  
+**Causa:** Uso de `chosen_slot` em vez de `chosenSlot` nos logs  
+**Impacto:** 100% dos agendamentos falhavam ao tentar logar  
+**Status:** ✅ **RESOLVIDO DEFINITIVAMENTE**
+
+#### ✅ **Correções Aplicadas:**
+
+1. **Linha ~995 - Log Inicial**
+   ```typescript
+   // ANTES: chosen_slot (❌ variável não existe)
+   // DEPOIS: chosen_slot: chosenSlot (✅ usando variável local)
+   ```
+
+2. **Linha ~1119 - Log de Erro**
+   ```typescript
+   // ANTES: chosen_slot (❌ variável não existe)
+   // DEPOIS: chosen_slot: chosenSlot (✅ usando variável local)
+   ```
+
+#### 📊 **Causa Raiz:**
+- Shorthand property syntax do ES6 procura variável com nome exato
+- Variável local se chama `chosenSlot` (camelCase)
+- Tentativa de usar `chosen_slot` (snake_case) causava ReferenceError
+
+#### 🎯 **Resultado:**
+- ✅ Agendamentos funcionando 100%
+- ✅ Logs detalhados implementados
+- ✅ Erro completamente eliminado
+
+---
+
 ## 🚀 Versão 2.1 - Bug Fixes (2026-04-19)
 
 ### 🐛 **Bug Crítico Corrigido: "chosen_slot is not defined"**

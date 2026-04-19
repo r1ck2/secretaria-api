@@ -992,7 +992,7 @@ export class FlowEngineService {
       metadata: {
         node_id: node.id,
         node_label: node.data.label,
-        chosen_slot,
+        chosen_slot: chosenSlot,
         customer_name: ctx.name,
         context_keys: Object.keys(ctx),
         slots_available: ctx.slots?.length || 0,
@@ -1116,7 +1116,7 @@ export class FlowEngineService {
         error: err,
         metadata: {
           node_id: node.id,
-          chosen_slot,
+          chosen_slot: chosenSlot,
           error_details: err?.response?.data || null,
         },
       });
