@@ -143,6 +143,12 @@ echo "  4. Valide mensagens em português"
 echo "  5. Aplique em produção após testes"
 echo ""
 
+print_info "Documentação disponível em:"
+echo "  📋 Resumo Executivo: .kiro/docs/flow-corrections/executive-summary.md"
+echo "  📚 Guia Completo: .kiro/docs/flow-corrections/implementation-guide.md"
+echo "  🔧 Análise Técnica: .kiro/docs/flow-corrections/technical-analysis.md"
+echo ""
+
 print_info "Backup salvo em: $BACKUP_FILE"
 print_warning "Mantenha este backup até confirmar que tudo está funcionando!"
 echo ""

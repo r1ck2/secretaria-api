@@ -488,8 +488,48 @@ export class FlowEngineService {
     session.current_node_id = nodeId;
     const ctx = session.getContext();
 
+    // Enhanced logging for node execution
+    await logService.logFlowAutomation({
+      action: "node_execution_start",
+      message: `Executing node: ${nodeId} (${node.data.nodeType}) - ${node.data.label}`,
+      phone_number: ctx.phone,
+      user_id: ctx.user_id,
+      flow_id: ctx.flow_id,
+      session_id: session.id,
+      metadata: {
+        node_id: nodeId,
+        node_type: node.data.nodeType,
+        node_label: node.data.label,
+        context_keys: Object.keys(ctx),
+        chosen_slot_exists: !!ctx.chosen_slot,
+        slots_count: ctx.slots?.length || 0,
+      },
+    });
+
     const result = await this.executeNode(node, ctx, session, graph);
-    session.setContext({ ...ctx, ...result.output });
+    
+    // Log context update
+    const updatedContext = { ...ctx, ...result.output };
+    session.setContext(updatedContext);
+    
+    await logService.logFlowAutomation({
+      action: "node_execution_complete",
+      message: `Node completed: ${nodeId} (${node.data.nodeType}) - Status: ${result.status}`,
+      phone_number: ctx.phone,
+      user_id: ctx.user_id,
+      flow_id: ctx.flow_id,
+      session_id: session.id,
+      metadata: {
+        node_id: nodeId,
+        node_type: node.data.nodeType,
+        node_label: node.data.label,
+        execution_status: result.status,
+        output_keys: Object.keys(result.output),
+        chosen_slot_after: updatedContext.chosen_slot ? "defined" : "undefined",
+        context_keys_after: Object.keys(updatedContext),
+      },
+    });
+    
     results.push({ ...result, context: session.getContext() });
 
     if (result.status === "waiting_input") { session.status = "waiting_input"; return; }
@@ -692,11 +732,27 @@ export class FlowEngineService {
       // Also handle if AI returned a time string like "9:00" or "14:00" — match against slots
       const slotNum = parseInt(lowerAi.trim(), 10);
       let chosenSlot = ctx.chosen_slot;
+      
       if (lowerAi === "menu" || lowerAi === "0") {
         chosenSlot = null; // signal to go back to menu
         intent = "menu";
       } else if (!isNaN(slotNum) && slotNum >= 1 && slotNum <= 4 && ctx.slots) {
         chosenSlot = ctx.slots.find((s: any) => s.index === slotNum) || ctx.slots[slotNum - 1];
+        
+        await logService.logFlowAutomation({
+          action: "ai_agent_slot_selected",
+          message: `AI selected slot by number: ${slotNum}`,
+          phone_number: ctx.phone,
+          user_id: userId,
+          flow_id: ctx.flow_id,
+          session_id: session.id,
+          metadata: {
+            node_id: node.id,
+            slot_number: slotNum,
+            chosen_slot: chosenSlot,
+            available_slots: ctx.slots?.length || 0,
+          },
+        });
       } else if (ctx.slots && Array.isArray(ctx.slots)) {
         // AI returned something other than a clean number (e.g. "9:00", "14h", "segundo horário")
         // Try to match against slot labels or find by time string
@@ -709,6 +765,21 @@ export class FlowEngineService {
         });
         if (matched) {
           chosenSlot = matched;
+          
+          await logService.logFlowAutomation({
+            action: "ai_agent_slot_matched",
+            message: `AI slot matched by text: ${lowerAi}`,
+            phone_number: ctx.phone,
+            user_id: userId,
+            flow_id: ctx.flow_id,
+            session_id: session.id,
+            metadata: {
+              node_id: node.id,
+              ai_text: lowerAi,
+              matched_slot: matched,
+              available_slots: ctx.slots?.length || 0,
+            },
+          });
         }
         // If still no match but AI expressed a valid intent to schedule, use first slot as fallback
         // only if the user's original message contained a number
@@ -717,6 +788,21 @@ export class FlowEngineService {
           const userNum = parseInt(userMsg, 10);
           if (!isNaN(userNum) && userNum >= 1 && userNum <= 4 && ctx.slots) {
             chosenSlot = ctx.slots.find((s: any) => s.index === userNum) || ctx.slots[userNum - 1];
+            
+            await logService.logFlowAutomation({
+              action: "ai_agent_slot_fallback",
+              message: `Using user message number as fallback: ${userNum}`,
+              phone_number: ctx.phone,
+              user_id: userId,
+              flow_id: ctx.flow_id,
+              session_id: session.id,
+              metadata: {
+                node_id: node.id,
+                user_number: userNum,
+                fallback_slot: chosenSlot,
+                ai_response: lowerAi,
+              },
+            });
           }
         }
       }
@@ -800,8 +886,14 @@ export class FlowEngineService {
     // Handle slot number
     const slotNum = parseInt(message.trim(), 10);
     let chosenSlot = ctx.chosen_slot;
-    if (!isNaN(slotNum) && slotNum >= 1 && slotNum <= 4 && ctx.slots) {
+    if (message === "menu" || message === "0") {
+      chosenSlot = null; // signal to go back to menu
+      intent = "menu";
+      aiResponse = "menu";
+    } else if (!isNaN(slotNum) && slotNum >= 1 && slotNum <= 4 && ctx.slots) {
       chosenSlot = ctx.slots.find((s: any) => s.index === slotNum) || ctx.slots[slotNum - 1];
+      
+      console.log(`[FlowEngine] ai_agent_mock(${node.id}) — slot selected: ${slotNum} → ${JSON.stringify(chosenSlot)}`);
     }
 
     session.pushHistory({ role: "assistant", content: aiResponse, node_id: node.id });
@@ -893,43 +985,67 @@ export class FlowEngineService {
 
     await logService.logFlowAutomation({
       action: "book_appointment_start",
-      message: `Booking appointment for customer`,
+      message: `Booking appointment for customer - Node: ${node.id} (${node.data.label})`,
       phone_number: ctx.phone,
       user_id: userId,
       flow_id: ctx.flow_id,
       metadata: {
         node_id: node.id,
+        node_label: node.data.label,
         chosen_slot,
         customer_name: ctx.name,
+        context_keys: Object.keys(ctx),
+        slots_available: ctx.slots?.length || 0,
       },
     });
 
-    console.log("[FlowEngine] book_appointment — user_id:", userId, "| chosen_slot:", JSON.stringify(chosenSlot));
+    console.log(`[FlowEngine] book_appointment — Node: ${node.id} (${node.data.label}) — user_id:`, userId, "| chosen_slot:", JSON.stringify(chosenSlot), "| ctx.slots:", ctx.slots?.length || 0);
 
     if (!userId) {
       await logService.logFlowAutomation({
         level: "error",
         action: "book_appointment_no_user",
-        message: "No user_id found in context for appointment booking",
+        message: `No user_id found in context for appointment booking - Node: ${node.id} (${node.data.label})`,
         phone_number: ctx.phone,
         flow_id: ctx.flow_id,
-        metadata: { node_id: node.id },
+        metadata: { 
+          node_id: node.id,
+          node_label: node.data.label,
+          context_keys: Object.keys(ctx),
+        },
       });
 
       return { ...base, node_type: "book_appointment", status: "error", output: { error: "user_id not found in context." } };
     }
+    
     if (!chosenSlot) {
       await logService.logFlowAutomation({
         level: "error",
         action: "book_appointment_no_slot",
-        message: "No slot chosen for appointment booking",
+        message: `No slot chosen for appointment booking - Node: ${node.id} (${node.data.label})`,
         phone_number: ctx.phone,
         user_id: userId,
         flow_id: ctx.flow_id,
-        metadata: { node_id: node.id },
+        metadata: { 
+          node_id: node.id,
+          node_label: node.data.label,
+          context_keys: Object.keys(ctx),
+          chosen_slot_value: ctx.chosen_slot,
+          slots_available: ctx.slots?.length || 0,
+          slots_preview: ctx.slots?.slice(0, 2) || [],
+        },
       });
 
-      return { ...base, node_type: "book_appointment", status: "error", output: { error: "No slot chosen in context." } };
+      // Return error with fallback message to customer
+      return { 
+        ...base, 
+        node_type: "book_appointment", 
+        status: "error", 
+        output: { 
+          error: "No slot chosen in context.",
+          message_sent: "Desculpe, não consegui identificar o horário escolhido. 😔\n\nPor favor, digite 'menu' para ver as opções disponíveis novamente.",
+        } 
+      };
     }
 
     // Read appointment prefix from professional settings
@@ -1360,9 +1476,34 @@ export class FlowEngineService {
     try {
       const fn = new Function(...Object.keys(ctx), `return !!(${condition})`);
       result = fn(...Object.values(ctx));
-    } catch { result = false; }
+    } catch (err: any) { 
+      console.error(`[FlowEngine] conditional(${node.id}) — condition error:`, err.message);
+      result = false; 
+    }
 
     const branch = result ? "yes" : "no";
+    
+    // Enhanced logging for conditional nodes
+    await logService.logFlowAutomation({
+      action: "conditional_evaluation",
+      message: `Conditional node evaluated: ${condition} = ${result} → ${branch}`,
+      phone_number: ctx.phone,
+      user_id: ctx.user_id,
+      flow_id: ctx.flow_id,
+      metadata: {
+        node_id: node.id,
+        node_label: node.data.label,
+        condition,
+        result,
+        branch,
+        context_keys: Object.keys(ctx),
+        chosen_slot_exists: !!ctx.chosen_slot,
+        chosen_slot_value: ctx.chosen_slot,
+      },
+    });
+    
+    console.log(`[FlowEngine] conditional(${node.id}) — "${condition}" = ${result} → ${branch}`);
+
     return {
       ...base,
       node_type: "conditional",

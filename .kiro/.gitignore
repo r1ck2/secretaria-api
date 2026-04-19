@@ -1,0 +1,19 @@
+# Kiro Configuration Files
+# Ignore sensitive configuration files but keep documentation
+
+# Settings (may contain sensitive data)
+settings/local.*
+settings/secrets.*
+settings/*.key
+settings/*.pem
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# Keep documentation and public configs
+!docs/
+!settings/example.*
+!settings/template.*
