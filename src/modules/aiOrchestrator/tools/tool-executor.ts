@@ -86,6 +86,9 @@ export class ToolExecutor {
         case 'list_slots':
           result = await this.listSlotsTool.execute(args, context);
           break;
+        case 'set_pending_slot':
+          result = this.executePendingSlot(args, context);
+          break;
         case 'book_appointment':
           result = await this.bookAppointmentTool.execute(args, context);
           break;
@@ -134,8 +137,27 @@ export class ToolExecutor {
     return TOOL_DEFINITIONS;
   }
 
+  /**
+   * Registra o slot escolhido pelo cliente no contexto para confirmação posterior.
+   */
+  private executePendingSlot(args: Record<string, any>, context: SessionContext): ToolExecutionResult {
+    const { slot_index } = args;
+    if (!context.slots || context.slots.length === 0) {
+      return { success: false, error: 'Nenhum slot disponível no contexto. Chame list_slots primeiro.' };
+    }
+    if (slot_index < 1 || slot_index > context.slots.length) {
+      return { success: false, error: `Índice inválido. Escolha entre 1 e ${context.slots.length}.` };
+    }
+    const slot = context.slots[slot_index - 1];
+    (context as any).pending_slot_confirmation = slot;
+    return {
+      success: true,
+      data: { pending_slot_confirmation: slot },
+    };
+  }
+
   private isValidToolName(toolName: string): toolName is ToolName {
-    const validNames: ToolName[] = ['list_slots', 'book_appointment', 'cancel_appointment', 'create_todo', 'register_customer'];
+    const validNames: ToolName[] = ['list_slots', 'set_pending_slot', 'book_appointment', 'cancel_appointment', 'create_todo', 'register_customer'];
     return validNames.includes(toolName as ToolName);
   }
 

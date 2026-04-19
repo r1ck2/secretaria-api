@@ -59,6 +59,11 @@ export class ListSlotsTool extends AbstractTool {
         duration_minutes: slot.duration_minutes || 60,
       }));
 
+      // Update context with slots and clear any previous confirmation state
+      context.slots = formattedSlots;
+      (context as any).pending_slot_confirmation = null;
+      (context as any).last_booked_appointment = null;
+
       this.log(LogAction.TOOL_EXECUTION_COMPLETE, 'list_slots completed successfully', {
         user_id: context.user_id,
         phone: context.phone,
@@ -67,8 +72,8 @@ export class ListSlotsTool extends AbstractTool {
 
       return {
         slots: formattedSlots,
-        message: formattedSlots.length > 0 
-          ? `Encontrei ${formattedSlots.length} horários disponíveis nos próximos 7 dias.`
+        message: formattedSlots.length > 0
+          ? `${formattedSlots.length} horários disponíveis encontrados.`
           : 'Não há horários disponíveis nos próximos 7 dias.',
       };
 

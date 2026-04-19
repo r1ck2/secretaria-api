@@ -152,6 +152,7 @@ export interface HistoryEntry {
 // Tool Names
 export type ToolName = 
   | 'list_slots'
+  | 'set_pending_slot'
   | 'book_appointment'
   | 'cancel_appointment'
   | 'create_todo'

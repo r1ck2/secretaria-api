@@ -31,13 +31,12 @@ export interface SerializedContext {
 
 /**
  * Serializes SessionContext into a concise string for OpenAI system prompt injection.
- * Filters internal fields, truncates history, and formats slots/appointments readably.
  */
 export function serializeForOpenAI(context: SessionContext, history?: HistoryEntry[]): string {
   const parts: string[] = [];
-
-  // Professional / company info
   const ctx = context as any;
+
+  // Company info
   if (ctx.company_name) {
     parts.push(`[EMPRESA]\nNome: ${ctx.company_name}`);
   }
@@ -45,70 +44,86 @@ export function serializeForOpenAI(context: SessionContext, history?: HistoryEnt
   // Customer info
   const customerLines: string[] = [];
   if (context.name) customerLines.push(`Nome: ${context.name}`);
-  else if ((context as any).whatsapp_sender_name) customerLines.push(`Nome (WhatsApp): ${(context as any).whatsapp_sender_name}`);
+  else if (ctx.whatsapp_sender_name) customerLines.push(`Nome (WhatsApp): ${ctx.whatsapp_sender_name}`);
   customerLines.push(`Telefone: ${context.phone}`);
   if (context.email) customerLines.push(`Email: ${context.email}`);
-  customerLines.push(`Cliente recorrente: ${context.is_returning_customer ? 'Sim' : 'Não'}`);
-
+  customerLines.push(`Cliente cadastrado: ${context.is_returning_customer ? 'Sim' : 'Não'}`);
+  if (context.customer_id) customerLines.push(`ID: ${context.customer_id}`);
   parts.push(`[CLIENTE]\n${customerLines.join('\n')}`);
 
-  // Conversation state
+  // Conversation state — explicit stage tracking
   const convLines: string[] = [];
-  convLines.push(`Saudação: ${context.time_of_day}`);
-  if (context.last_user_message) {
-    convLines.push(`Última mensagem: ${context.last_user_message}`);
-  }
+  convLines.push(`Horário: ${context.time_of_day}`);
+  if (context.last_user_message) convLines.push(`Última mensagem do cliente: "${context.last_user_message}"`);
+
+  // Determine current stage
+  const stage = deriveStage(context, history);
+  convLines.push(`Estágio atual: ${stage}`);
   parts.push(`[CONVERSA]\n${convLines.join('\n')}`);
 
-  // Working hours / availability constraints
+  // Working hours
   if (ctx.working_days || ctx.working_hours_start) {
-    const availLines: string[] = [];
-    if (ctx.working_days && Array.isArray(ctx.working_days)) {
-      availLines.push(`Dias disponíveis: ${ctx.working_days.join(', ')}`);
-    }
-    if (ctx.working_hours_start && ctx.working_hours_end) {
-      availLines.push(`Horário: ${ctx.working_hours_start} às ${ctx.working_hours_end}`);
-    }
-    if (availLines.length > 0) {
-      parts.push(`[DISPONIBILIDADE]\n${availLines.join('\n')}`);
-    }
+    const lines: string[] = [];
+    if (ctx.working_days && Array.isArray(ctx.working_days)) lines.push(`Dias: ${ctx.working_days.join(', ')}`);
+    if (ctx.working_hours_start && ctx.working_hours_end) lines.push(`Horário: ${ctx.working_hours_start} às ${ctx.working_hours_end}`);
+    if (lines.length) parts.push(`[DISPONIBILIDADE DO PROFISSIONAL]\n${lines.join('\n')}`);
   }
 
-  // Available slots
+  // Available slots — critical for slot selection flow
   if (context.slots && context.slots.length > 0) {
     const slotLines = context.slots.map(slot => formatSlot(slot));
-    parts.push(`[HORÁRIOS DISPONÍVEIS]\n${slotLines.join('\n')}`);
+    parts.push(`[HORÁRIOS DISPONÍVEIS — aguardando escolha do cliente]\n${slotLines.join('\n')}\nINSTRUÇÃO: Se o cliente responder com número (1-${context.slots.length}), interprete como escolha deste slot.`);
+  }
+
+  // Pending slot confirmation
+  if (ctx.pending_slot_confirmation) {
+    const s = ctx.pending_slot_confirmation;
+    parts.push(`[AGUARDANDO CONFIRMAÇÃO]\nSlot escolhido: ${s.label}\nINSTRUÇÃO: Se cliente responder "sim" ou confirmar, chame book_appointment com slot_index=${s.index}. Se responder "não", liste os horários novamente.`);
   }
 
   // Active appointments
   if (context.appointments && context.appointments.length > 0) {
     const aptLines = context.appointments.map(apt => formatAppointment(apt));
-    parts.push(`[CONSULTAS AGENDADAS]\n${aptLines.join('\n')}`);
+    parts.push(`[CONSULTAS AGENDADAS DO CLIENTE]\n${aptLines.join('\n')}`);
+  }
+
+  // Last booked appointment (just confirmed)
+  if (ctx.last_booked_appointment) {
+    parts.push(`[ÚLTIMO AGENDAMENTO REALIZADO]\n${ctx.last_booked_appointment}`);
   }
 
   // Pending registration
-  if ((context as any).pending_registration) {
-    const reg = (context as any).pending_registration;
-    const regLines = Object.entries(reg)
-      .filter(([k]) => k !== 'step')
-      .map(([k, v]) => `${k}: ${v}`);
-    if (regLines.length > 0) {
-      parts.push(`[CADASTRO EM ANDAMENTO]\n${regLines.join('\n')}`);
-    }
+  if (ctx.pending_registration) {
+    const reg = ctx.pending_registration;
+    const regLines = Object.entries(reg).filter(([k]) => k !== 'step').map(([k, v]) => `${k}: ${v}`);
+    if (regLines.length) parts.push(`[CADASTRO EM ANDAMENTO]\n${regLines.join('\n')}\nEtapa atual: ${reg.step}`);
   }
 
-  // Conversation history (truncated)
+  // Conversation history
   if (history && history.length > 0) {
     const truncated = history.slice(-MAX_HISTORY_MESSAGES);
     const historyLines = truncated
       .filter(h => h.role === 'user' || h.role === 'assistant')
       .map(h => `${h.role === 'user' ? 'Cliente' : 'Assistente'}: ${h.content}`);
-    if (historyLines.length > 0) {
-      parts.push(`[HISTÓRICO RECENTE]\n${historyLines.join('\n')}`);
-    }
+    if (historyLines.length) parts.push(`[HISTÓRICO RECENTE]\n${historyLines.join('\n')}`);
   }
 
   return parts.join('\n\n');
+}
+
+/**
+ * Derives the current conversation stage based on context and history.
+ */
+function deriveStage(context: SessionContext, history?: HistoryEntry[]): string {
+  const ctx = context as any;
+  const msgCount = history?.filter(h => h.role === 'user' || h.role === 'assistant').length ?? 0;
+
+  if (msgCount <= 1) return 'BOAS-VINDAS — primeira interação, cumprimente e pergunte como pode ajudar';
+  if (!context.is_returning_customer && !context.customer_id) return 'IDENTIFICAÇÃO — cliente não cadastrado, colete o nome';
+  if (ctx.pending_slot_confirmation) return 'CONFIRMAÇÃO — aguardando cliente confirmar o slot escolhido com "sim" ou "não"';
+  if (context.slots && context.slots.length > 0) return 'LISTAGEM — horários já foram listados, aguardando cliente escolher um número (1-' + context.slots.length + ')';
+  if (ctx.last_booked_appointment) return 'PÓS-AGENDAMENTO — agendamento realizado, ofereça mais ajuda';
+  return 'ATENDIMENTO — aguardando intenção do cliente';
 }
 
 function formatSlot(slot: Slot): string {

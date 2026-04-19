@@ -5,11 +5,24 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'list_slots',
-      description: 'Lista horários disponíveis para agendamento no Google Calendar do profissional. Retorna até 4 slots nos próximos 7 dias.',
+      description: 'Lista horários disponíveis para agendamento. Chame quando o cliente quiser agendar ou pedir horários disponíveis. Retorna até 4 slots nos próximos 7 dias.',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_pending_slot',
+      description: 'Registra o slot escolhido pelo cliente para confirmação. Chame quando o cliente escolher um número de slot (1, 2, 3 ou 4) ANTES de confirmar o agendamento. Após chamar esta tool, apresente o resumo do slot e peça confirmação.',
       parameters: {
         type: 'object',
-        properties: {},
-        required: []
+        properties: {
+          slot_index: {
+            type: 'number',
+            description: 'Índice do slot escolhido pelo cliente (1-4)'
+          }
+        },
+        required: ['slot_index']
       }
     }
   },
@@ -17,13 +30,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'book_appointment',
-      description: 'Agenda uma consulta no horário escolhido pelo cliente. Requer que list_slots tenha sido chamado anteriormente e o cliente tenha escolhido um slot.',
+      description: 'Confirma e cria o agendamento. Chame SOMENTE quando o cliente confirmar explicitamente (responder "sim", "confirmar", "pode agendar", "ok" etc.) após ter escolhido um slot. Use o slot_index do slot pendente de confirmação.',
       parameters: {
         type: 'object',
         properties: {
           slot_index: {
             type: 'number',
-            description: 'Índice do slot escolhido (1-4) da lista retornada por list_slots'
+            description: 'Índice do slot a agendar (1-4). Use o mesmo índice do set_pending_slot.'
           }
         },
         required: ['slot_index']
@@ -34,31 +47,20 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'cancel_appointment',
-      description: 'Lista agendamentos confirmados do cliente e permite cancelamento. Retorna lista de consultas agendadas.',
-      parameters: {
-        type: 'object',
-        properties: {},
-        required: []
-      }
+      description: 'Lista agendamentos confirmados do cliente para cancelamento. Chame quando o cliente quiser cancelar ou desmarcar uma consulta.',
+      parameters: { type: 'object', properties: {}, required: [] }
     }
   },
   {
     type: 'function',
     function: {
       name: 'create_todo',
-      description: 'Cria um cartão Kanban para follow-up ou tarefa pendente. Usado quando o cliente precisa de atendimento humano ou há uma ação pendente.',
+      description: 'Cria um cartão Kanban para follow-up. Use quando o cliente precisar de atendimento humano ou houver ação pendente que não pode ser resolvida automaticamente.',
       parameters: {
         type: 'object',
         properties: {
-          title: {
-            type: 'string',
-            description: 'Título do cartão (ex: "Retorno para cliente: João Silva")'
-          },
-          priority: {
-            type: 'string',
-            enum: ['high', 'medium', 'low'],
-            description: 'Prioridade do cartão'
-          }
+          title: { type: 'string', description: 'Título do cartão' },
+          priority: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Prioridade' }
         },
         required: ['title']
       }
@@ -68,22 +70,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'register_customer',
-      description: 'Cadastra um novo cliente no sistema. Usado quando um número não cadastrado entra em contato.',
+      description: 'Cadastra um novo cliente. Chame quando o cliente não estiver cadastrado (is_returning_customer = Não) e você já tiver o nome confirmado.',
       parameters: {
         type: 'object',
         properties: {
-          name: {
-            type: 'string',
-            description: 'Nome completo do cliente'
-          },
-          email: {
-            type: 'string',
-            description: 'Email do cliente (opcional)'
-          },
-          document: {
-            type: 'string',
-            description: 'CPF ou documento do cliente (opcional)'
-          }
+          name: { type: 'string', description: 'Nome completo do cliente' },
+          email: { type: 'string', description: 'Email (opcional)' },
+          document: { type: 'string', description: 'CPF (opcional)' }
         },
         required: ['name']
       }

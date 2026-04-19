@@ -98,9 +98,15 @@ export class BookAppointmentTool extends AbstractTool {
         google_calendar_used: useGoogleCalendar,
       });
 
+      // Update context: clear slots, clear pending confirmation, record last booked
+      (context as any).slots = [];
+      (context as any).chosen_slot = chosenSlot;
+      (context as any).pending_slot_confirmation = null;
+      (context as any).last_booked_appointment = `${chosenSlot.label} — ${appointmentTitle}`;
+
       return {
         appointment,
-        message: `Agendamento confirmado para ${chosenSlot.label}. Você receberá uma confirmação por email se forneceu seu endereço de email.`,
+        message: `Agendamento confirmado para ${chosenSlot.label}.`,
       };
 
     } catch (error) {
