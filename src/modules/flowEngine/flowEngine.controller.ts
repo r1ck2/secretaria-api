@@ -398,9 +398,27 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
     // Send each message_sent result back via Evolution
     if (conn.evolution_instance_name && conn.evolution_instance_apikey) {
       let messagesSent = 0;
+      const sentMessages = new Set<string>(); // Track messages already sent to prevent duplicates
+      
       for (const result of results) {
         const msg = result.output?.message_sent;
         if (msg && typeof msg === "string" && msg.trim()) {
+          // Check if message was already sent (deduplication)
+          if (sentMessages.has(msg)) {
+            await logService.logEvolution({
+              action: "message_duplicate_skipped",
+              message: `Duplicate message skipped`,
+              phone_number: fromNumber,
+              user_id: conn.user_id,
+              metadata: {
+                instanceName: conn.evolution_instance_name,
+                messagePreview: msg.substring(0, 100),
+                nodeType: result.node_type,
+              },
+            });
+            continue; // Skip duplicate message
+          }
+          
           try {
             await evolutionApiService.sendTextMessage(
               conn.evolution_instance_name,
@@ -408,6 +426,7 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
               fromNumber,
               msg
             );
+            sentMessages.add(msg); // Mark message as sent
             messagesSent++;
 
             await logService.logEvolution({

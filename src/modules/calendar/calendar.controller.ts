@@ -52,12 +52,12 @@ export async function handleCallback(req: Request, res: Response) {
   try {
     const { code, state } = req.query as { code: string; state: string };
     if (!code || !state) {
-      return res.redirect(`${env.APP_WEB_URL}/panel/calendar?error=missing_params`);
+      return res.redirect(`${env.APP_WEB_URL}/panel/calendario?error=missing_params`);
     }
     await calendarService.handleCallback(state, code); // state contains CSRF-signed userId
-    res.redirect(`${env.APP_WEB_URL}/panel/calendar?connected=true`);
+    res.redirect(`${env.APP_WEB_URL}/panel/calendario?connected=true`);
   } catch (error: any) {
-    res.redirect(`${env.APP_WEB_URL}/panel/calendar?error=true`);
+    res.redirect(`${env.APP_WEB_URL}/panel/calendario?error=true`);
   }
 }
 
