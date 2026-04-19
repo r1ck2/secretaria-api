@@ -13,6 +13,7 @@ import flowBlockRoutes from "./v1/flowBlock.routes";
 import adminAgentRoutes from "./v1/adminAgent.routes";
 import evolutionRoutes from "./v1/evolution.routes";
 import logRoutes from "./v1/log.routes";
+import aiOrchestratorRoutes from "./v1/aiOrchestrator.routes";
 
 const routes = express.Router();
 
@@ -39,6 +40,7 @@ routes.use("/api/v1", flowBlockRoutes);
 routes.use("/api/v1", adminAgentRoutes);
 routes.use("/api/v1", evolutionRoutes);
 routes.use("/api/v1", logRoutes);
+routes.use("/api/v1", aiOrchestratorRoutes);
 
 routes.use(notFoundHandler);
 

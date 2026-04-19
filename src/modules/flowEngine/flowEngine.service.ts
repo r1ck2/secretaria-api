@@ -77,6 +77,46 @@ export class FlowEngineService {
     professionalUserIdOverride?: string
   ): Promise<NodeResult[]> {
 
+    // ── Feature toggle: delegate to AI Orchestrator if enabled ────────────────
+    const aiToggle = await Setting.findOne({ where: { key: 'use_ai_orchestrator', is_admin: true } });
+    if (aiToggle?.value === 'true') {
+      const { AIOrchestrator } = await import('@/modules/aiOrchestrator/ai-orchestrator.service');
+      const { SessionManager } = await import('@/modules/aiOrchestrator/session-manager');
+      const { ToolExecutor } = await import('@/modules/aiOrchestrator/tools/tool-executor');
+      const { EvolutionApiService } = await import('@/modules/evolution/evolution.service');
+      const { LogService } = await import('@/modules/log/log.service');
+
+      const ls = new LogService();
+      const orchestrator = new AIOrchestrator({
+        sessionManager: new SessionManager({ logService: ls }),
+        toolExecutor: new ToolExecutor({ logService: ls, calendarService: null, customerService: null, appointmentService: null, kanbanService: null }),
+        evolutionApiService: new EvolutionApiService(),
+        logService: ls,
+      });
+
+      const result = await orchestrator.receiveMessage({
+        phoneNumber,
+        message,
+        flowId: flowId || '',
+        toNumber: toNumber || phoneNumber,
+        professionalUserId: professionalUserIdOverride || '',
+      });
+
+      // Return a compatible NodeResult array
+      return [{
+        node_id: 'ai_orchestrator',
+        node_type: 'ai_orchestrator',
+        label: 'AI Orchestrator',
+        status: result.status === 'error' ? 'error' : 'completed',
+        session_id: result.session_id,
+        context: {},
+        output: {
+          messages_sent: result.messages_sent,
+          tools_executed: result.tools_executed,
+        },
+      }];
+    }
+
     // Normalize phone number for customer lookup only
     const phoneNormalization = normalizePhoneNumber(phoneNumber);
     const normalizedPhone = phoneNormalization.normalized;

@@ -14,3 +14,4 @@ export { WhatsappConnection } from "@/modules/whatsapp/whatsapp.entity";
 export { ProfessionalActiveFlow } from "@/modules/professionalFlow/professionalFlow.entity";
 export { FlowBlockedCustomer } from "@/modules/flowBlock/flowBlock.entity";
 export { AdminAgent } from "@/modules/adminAgent/adminAgent.entity";
+export { Log } from "@/modules/log/log.entity";

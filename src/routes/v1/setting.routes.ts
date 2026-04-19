@@ -73,7 +73,7 @@ router.get("/settings/admin", checkjwt, requireAdminMaster, async (req: Request,
  */
 router.get("/settings/admin/public", checkjwt, async (req: Request, res: Response) => {
   try {
-    const ALLOWED_KEYS = ["use_admin_agent", "whatsapp_provider"];
+    const ALLOWED_KEYS = ["use_admin_agent", "use_ai_orchestrator", "whatsapp_provider"];
     const settings = await Setting.findAll({
       where: { is_admin: true, key: ALLOWED_KEYS },
     });
@@ -104,6 +104,32 @@ router.patch("/settings/admin", checkjwt, requireAdminMaster, async (req: Reques
     if (!created) await setting.update({ value });
 
     return res.json({ success: true, data: setting });
+  } catch (error: any) {
+    return res.status(StatusCodes.BAD_REQUEST).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * PATCH /api/v1/settings/ai-orchestrator
+ * Enable or disable the AI Orchestrator feature toggle.
+ * Body: { enabled: boolean }
+ * Restricted to admin users.
+ */
+router.patch("/settings/ai-orchestrator", checkjwt, requireAdminMaster, async (req: Request, res: Response) => {
+  try {
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      return res.status(StatusCodes.UNPROCESSABLE_ENTITY).json({ success: false, message: "enabled (boolean) is required." });
+    }
+
+    const [setting, created] = await Setting.findOrCreate({
+      where: { is_admin: true, key: 'use_ai_orchestrator' },
+      defaults: { is_admin: true, user_id: null, key: 'use_ai_orchestrator', value: String(enabled) } as any,
+    });
+
+    if (!created) await setting.update({ value: String(enabled) });
+
+    return res.json({ success: true, data: { use_ai_orchestrator: enabled } });
   } catch (error: any) {
     return res.status(StatusCodes.BAD_REQUEST).json({ success: false, message: error.message });
   }
