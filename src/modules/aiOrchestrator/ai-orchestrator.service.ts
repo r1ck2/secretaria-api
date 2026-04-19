@@ -293,7 +293,47 @@ export class AIOrchestrator {
   }
 
   private buildSystemPrompt(agentPrompt: string, contextString: string): string {
-    return `${agentPrompt}\n\n---\n\n${contextString}`;
+    const orchestrationInstructions = `
+## INSTRUÇÕES DE ATENDIMENTO
+
+Você é um assistente de atendimento via WhatsApp. Seu objetivo é entender a intenção do cliente e executar a ação correta usando as ferramentas disponíveis.
+
+### FLUXO DE ATENDIMENTO
+
+**1. IDENTIFICAÇÃO DO CLIENTE**
+- Se o cliente NÃO está cadastrado (is_returning_customer = Não e sem customer_id), você DEVE coletar nome e telefone e chamar \`register_customer\`.
+- Se o WhatsApp forneceu o nome (Nome (WhatsApp) no contexto), use-o como sugestão mas confirme com o cliente.
+- Após cadastrar, continue o atendimento normalmente.
+
+**2. INTENÇÃO DO CLIENTE — detecte e aja:**
+- "quero agendar", "marcar consulta", "horários", "disponibilidade", "agendar" → chame \`list_slots\` imediatamente
+- "cancelar", "desmarcar", "cancelamento" → chame \`cancel_appointment\` imediatamente
+- "dúvida", "pergunta", "informação" → responda diretamente ou crie um todo com \`create_todo\`
+- Após listar slots e o cliente escolher um número → chame \`book_appointment\` com o slot_index escolhido
+
+**3. REGRAS IMPORTANTES**
+- SEMPRE chame a tool adequada quando detectar a intenção — não apenas descreva o que vai fazer
+- Após executar uma tool, use o resultado para formular a resposta ao cliente
+- Se o cliente disser "1", "2", "3" após ver os horários, interprete como escolha de slot e chame \`book_appointment\`
+- Nunca repita a última mensagem sem avançar no fluxo
+- Se não entender, peça para o cliente reformular de forma diferente
+- Sempre responda em português brasileiro de forma cordial e objetiva
+
+**4. SAUDAÇÃO**
+- Na primeira mensagem, cumprimente usando o horário do dia (${contextString.includes('bom dia') ? 'bom dia' : contextString.includes('boa tarde') ? 'boa tarde' : 'boa noite'}) e apresente-se com o nome da empresa se disponível
+- Pergunte como pode ajudar
+
+---
+
+## PERFIL DO AGENTE
+${agentPrompt || 'Você é um assistente de atendimento prestativo e eficiente.'}
+
+---
+
+## CONTEXTO ATUAL
+${contextString}`;
+
+    return orchestrationInstructions;
   }
 
   private async enrichWithProfessionalSettings(context: Record<string, any>, userId: string): Promise<void> {
@@ -338,6 +378,7 @@ export class AIOrchestrator {
           tool_call_id: toolCall.id,
           execution_time_ms: elapsed,
           success: result.success,
+          tool_name: toolName,
         });
 
         // Merge tool result data back into context
@@ -398,6 +439,9 @@ export class AIOrchestrator {
       action,
       message,
       metadata,
+      session_id: metadata?.session_id,
+      phone_number: metadata?.phone_number,
+      user_id: metadata?.user_id,
     }).catch(() => {/* non-blocking */});
   }
 
@@ -409,6 +453,9 @@ export class AIOrchestrator {
       message: error.message,
       metadata,
       error_stack: error.stack,
+      session_id: metadata?.session_id,
+      phone_number: metadata?.phone_number,
+      user_id: metadata?.user_id,
     }).catch(() => {/* non-blocking */});
   }
 }

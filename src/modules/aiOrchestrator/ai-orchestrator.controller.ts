@@ -372,3 +372,106 @@ export async function getToolCalls(req: Request, res: Response): Promise<void> {
     });
   }
 }
+
+/**
+ * GET /ai-orchestrator/sessions/:id
+ * Get full detail of a single session including history and context.
+ */
+export async function getSessionDetail(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+
+    const session = await FlowSession.findByPk(id, {
+      include: [
+        { association: 'customer', attributes: ['name', 'phone', 'email'] },
+        { association: 'flow', attributes: ['name'] },
+      ],
+    });
+
+    if (!session) {
+      res.status(404).json({ success: false, message: 'Sessão não encontrada.' });
+      return;
+    }
+
+    const history = session.getHistory();
+    const context = session.getContext();
+
+    // Fetch related tool call logs
+    const toolLogs = await Log.findAll({
+      where: {
+        module: 'ai_orchestrator',
+        action: 'tool_execution_complete',
+        session_id: id,
+      },
+      order: [['created_at', 'ASC']],
+      limit: 50,
+    });
+
+    const toolCalls = toolLogs.map((log: any) => {
+      let metadata: any = {};
+      try { metadata = typeof log.metadata === 'string' ? JSON.parse(log.metadata) : (log.metadata || {}); } catch { /* */ }
+      return {
+        id: log.id,
+        tool_name: metadata.tool_name || 'unknown',
+        status: log.level === 'error' ? 'error' : 'success',
+        execution_time_ms: metadata.execution_time_ms || 0,
+        created_at: log.created_at,
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        session: {
+          id: session.id,
+          phone_number: session.phone_number,
+          status: session.status,
+          customer_name: (session as any).customer?.name,
+          customer_phone: (session as any).customer?.phone,
+          flow_name: (session as any).flow?.name || 'AI Orchestrator',
+          messages_count: history.length,
+          created_at: session.createdAt,
+          updated_at: session.updatedAt,
+          context_preview: context.last_user_message || '',
+        },
+        history: history.map((h: any) => ({
+          role: h.role,
+          content: h.content,
+          timestamp: h.timestamp,
+        })),
+        context: {
+          name: context.name,
+          email: context.email,
+          is_returning_customer: context.is_returning_customer,
+          time_of_day: context.time_of_day,
+          company_name: context.company_name,
+        },
+        tool_calls: toolCalls,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Internal server error' });
+  }
+}
+
+/**
+ * DELETE /ai-orchestrator/sessions/:id
+ * Delete (close) a session.
+ */
+export async function deleteSession(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+
+    const session = await FlowSession.findByPk(id);
+    if (!session) {
+      res.status(404).json({ success: false, message: 'Sessão não encontrada.' });
+      return;
+    }
+
+    await session.update({ status: 'completed' });
+
+    res.json({ success: true, message: 'Sessão encerrada com sucesso.' });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || 'Internal server error' });
+  }
+}
