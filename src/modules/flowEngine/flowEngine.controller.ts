@@ -447,7 +447,26 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
     // Run flow engine — pass toNumber if available, otherwise engine will use user_id via context
     const results = await engineService.receiveMessage(fromNumber, messageText, undefined, toNumber, flowUserId);
 
-    // Send each message_sent result back via Evolution
+    // AI Orchestrator handles sending internally — just log and return
+    if (results.length === 1 && results[0].node_type === 'ai_orchestrator') {
+      const aiResult = results[0];
+      const messagesSent = aiResult.output?.messages_sent?.length ?? 0;
+      await logService.logEvolution({
+        action: "message_processing_complete",
+        message: `AI Orchestrator completed - ${messagesSent} messages sent`,
+        phone_number: fromNumber,
+        user_id: conn.user_id,
+        metadata: {
+          nodesExecuted: 1,
+          messagesSent,
+          status: aiResult.status,
+          tools_executed: aiResult.output?.tools_executed,
+        },
+      });
+      return res.status(200).json({ success: true });
+    }
+
+    // Send each message_sent result back via Evolution (FlowEngine path)
     if (conn.evolution_instance_name && conn.evolution_instance_apikey) {
       let messagesSent = 0;
       const sentMessages = new Set<string>(); // Track messages already sent to prevent duplicates
