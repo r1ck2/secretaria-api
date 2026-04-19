@@ -284,9 +284,42 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
       return res.status(200).json({ success: true, ignored: true });
     }
 
-    // Extract sender number (strip @s.whatsapp.net and normalize)
+    // Extract sender number (strip WhatsApp suffixes and normalize)
+    // Possible suffixes: @s.whatsapp.net, @lid, @g.us (groups)
     const remoteJid: string = data.key?.remoteJid || "";
-    const rawNumber = remoteJid.replace("@s.whatsapp.net", "").replace(/\D/g, "");
+    let rawNumber = remoteJid
+      .replace("@s.whatsapp.net", "")
+      .replace("@lid", "")
+      .replace("@g.us", "")
+      .replace(/\D/g, "");
+    
+    // Check for special cases
+    const isGroupChat = remoteJid.includes("@g.us");
+    const isLidNumber = remoteJid.includes("@lid");
+    
+    // ── SPECIAL CASE: @lid numbers - extract actual phone from senderPn ──
+    if (isLidNumber && data.key?.senderPn) {
+      const senderPnRaw = data.key.senderPn.replace("@s.whatsapp.net", "").replace(/\D/g, "");
+      const senderPnNormalization = normalizePhoneNumber(senderPnRaw);
+      
+      if (senderPnNormalization.isValid) {
+        await logService.logEvolution({
+          level: "info",
+          action: "webhook_lid_number_resolved",
+          message: "LID number detected - using senderPn as actual phone",
+          phone_number: senderPnNormalization.full,
+          metadata: { 
+            remoteJid,
+            lid_number: rawNumber,
+            senderPn: data.key.senderPn,
+            actual_number: senderPnNormalization.full,
+          },
+        });
+        
+        // Use senderPn as the actual phone number
+        rawNumber = senderPnRaw;
+      }
+    }
     
     // Normalize the phone number
     const phoneNormalization = normalizePhoneNumber(rawNumber);
@@ -304,9 +337,26 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
         country_code: phoneNormalization.countryCode,
         is_valid: phoneNormalization.isValid,
         extraction_success: !!fromNumber,
+        suffix_detected: isLidNumber ? "@lid" : isGroupChat ? "@g.us" : "@s.whatsapp.net",
+        used_senderPn: isLidNumber && data.key?.senderPn,
       },
     });
 
+    // ── Ignore group chats ──
+    if (isGroupChat) {
+      await logService.logEvolution({
+        level: "info",
+        action: "webhook_group_message_ignored",
+        message: "Group message ignored (not processing group chats)",
+        metadata: { 
+          remoteJid,
+          raw_number: rawNumber,
+        },
+      });
+      return res.status(200).json({ success: true, ignored: true, reason: "group_chat" });
+    }
+    
+    // ── Validate phone number ──
     if (!fromNumber || !phoneNormalization.isValid) {
       await logService.logEvolution({
         level: "warn",
@@ -319,10 +369,12 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
           full_number: fromNumber,
           is_valid: phoneNormalization.isValid,
           key_structure: data.key ? Object.keys(data.key) : null,
-          full_key: data.key
+          full_key: data.key,
+          is_lid: isLidNumber,
+          senderPn: data.key?.senderPn,
         },
       });
-      return res.status(200).json({ success: true, ignored: true });
+      return res.status(200).json({ success: true, ignored: true, reason: "invalid_number" });
     }
 
     // Extract message text

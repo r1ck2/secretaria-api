@@ -1,5 +1,51 @@
 # 📝 Changelog - Correções do Fluxo
 
+## 🚀 Versão 2.2 - Phone Normalization Improvements (2026-04-19)
+
+### 📞 **Melhorias na Normalização de Números**
+
+**Problema 1:** Números com sufixo `@lid` não eram processados  
+**Problema 2:** Clientes com números antigos (8 dígitos) não eram encontrados quando enviavam com número novo (9 dígitos) ou vice-versa
+
+#### ✅ **Correções Aplicadas:**
+
+1. **Suporte a Números LID**
+   - Detecta sufixo `@lid` automaticamente
+   - Extrai número real do campo `senderPn`
+   - Processa mensagens de números LID corretamente
+
+2. **Variações de 9º Dígito (Brasil)**
+   - Gera variações com E sem o 9º dígito
+   - Busca cliente em todas as variações possíveis
+   - Compatibilidade total com números antigos e novos
+
+3. **Múltiplos Sufixos WhatsApp**
+   - `@s.whatsapp.net` - Números normais
+   - `@lid` - Local Identifiers
+   - `@g.us` - Grupos (ignorados)
+
+#### 📊 **Exemplos de Variações Geradas:**
+
+```typescript
+// Número com 11 dígitos (novo formato)
+"27998385883" → ["27998385883", "5527998385883", "2798385883", "552798385883"]
+
+// Número com 10 dígitos (formato antigo)
+"2798385883" → ["2798385883", "552798385883", "27998385883", "5527998385883"]
+```
+
+#### 🎯 **Benefícios:**
+- ✅ Clientes sempre encontrados (independente do formato)
+- ✅ Suporte a números LID
+- ✅ Compatibilidade com números antigos e novos
+- ✅ Logs detalhados de normalização
+
+#### 📁 **Arquivos Modificados:**
+- `src/utils/phoneNormalizer.ts` - Função `getPhoneNumberVariations()`
+- `src/modules/flowEngine/flowEngine.controller.ts` - Tratamento de LID
+
+---
+
 ## 🚀 Versão 2.1.1 - Critical Bug Fix (2026-04-19)
 
 ### 🐛 **Bug Crítico Corrigido: "chosen_slot is not defined" (RESOLVIDO)**

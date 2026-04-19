@@ -176,6 +176,9 @@ export function formatPhoneNumber(
  * Get all possible phone number variations for database search
  * Returns array of possible formats to search in database
  * 
+ * IMPORTANT: For Brazil, includes variations with and without the 9th digit
+ * to handle old phone numbers (8 digits) and new ones (9 digits)
+ * 
  * @param phone - Phone number to get variations for
  * @param defaultCountryCode - Default country code
  * @returns Array of phone number variations
@@ -199,6 +202,42 @@ export function getPhoneNumberVariations(
   const digitsOnly = phone.replace(/\D/g, "");
   if (!variations.includes(digitsOnly)) {
     variations.push(digitsOnly);
+  }
+
+  // ── BRAZIL SPECIFIC: Handle 9th digit variations ──────────────────────────
+  // Brazilian mobile numbers changed from 8 to 9 digits in 2015-2017
+  // Old format: (27) 9838-5883 → 2798385883 (10 digits total)
+  // New format: (27) 99838-5883 → 27998385883 (11 digits total)
+  if (normalized.countryCode === COUNTRY_CODES.BRAZIL) {
+    const phoneWithoutCountry = normalized.normalized;
+    
+    // If phone has 11 digits (new format with 9)
+    if (phoneWithoutCountry.length === 11) {
+      const areaCode = phoneWithoutCountry.substring(0, 2);
+      const firstDigit = phoneWithoutCountry.substring(2, 3);
+      
+      // If it's a mobile number (starts with 9)
+      if (firstDigit === "9") {
+        // Create variation WITHOUT the 9th digit (old format)
+        const withoutNinth = areaCode + phoneWithoutCountry.substring(3);
+        variations.push(withoutNinth);                           // "2798385883"
+        variations.push(normalized.countryCode + withoutNinth);  // "552798385883"
+      }
+    }
+    
+    // If phone has 10 digits (old format without 9)
+    if (phoneWithoutCountry.length === 10) {
+      const areaCode = phoneWithoutCountry.substring(0, 2);
+      const firstDigit = phoneWithoutCountry.substring(2, 3);
+      
+      // If it's a mobile number (starts with 9, 8, 7, or 6)
+      if (["9", "8", "7", "6"].includes(firstDigit)) {
+        // Create variation WITH the 9th digit (new format)
+        const withNinth = areaCode + "9" + phoneWithoutCountry.substring(2);
+        variations.push(withNinth);                           // "27998385883"
+        variations.push(normalized.countryCode + withNinth);  // "5527998385883"
+      }
+    }
   }
 
   return [...new Set(variations)]; // Remove duplicates
