@@ -53,12 +53,12 @@ export class SessionManager {
       // Create new session if none found
       session = await FlowSession.create({
         phone_number: normalizedPhone,
-        flow_id: flowId!,
+        flow_id: flowId || null,
         status: 'active',
         context_json: JSON.stringify({
           phone: normalizedPhone,
           user_id: professionalUserId,
-          flow_id: flowId,
+          flow_id: flowId || null,
           time_of_day: this.getTimeOfDay(),
           is_returning_customer: false,
         }),

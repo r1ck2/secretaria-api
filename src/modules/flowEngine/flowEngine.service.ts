@@ -86,34 +86,6 @@ export class FlowEngineService {
       const { EvolutionApiService } = await import('@/modules/evolution/evolution.service');
       const { LogService } = await import('@/modules/log/log.service');
 
-      // Resolve the active flow for the professional if flowId not provided
-      let resolvedFlowId = flowId;
-      if (!resolvedFlowId && professionalUserIdOverride) {
-        const activeFlowRecord = await ProfessionalActiveFlow.findOne({
-          where: { user_id: professionalUserIdOverride },
-        });
-        if (activeFlowRecord?.flow_id) {
-          resolvedFlowId = activeFlowRecord.flow_id;
-        }
-      }
-      // Fallback: use any active flow
-      if (!resolvedFlowId) {
-        const anyFlow = await Flow.findOne({ where: { status: true } });
-        resolvedFlowId = anyFlow?.id;
-      }
-
-      if (!resolvedFlowId) {
-        return [{
-          node_id: 'ai_orchestrator',
-          node_type: 'ai_orchestrator',
-          label: 'AI Orchestrator',
-          status: 'error',
-          session_id: '',
-          context: {},
-          output: { error: 'No active flow found for professional' },
-        }];
-      }
-
       const ls = new LogService();
       const orchestrator = new AIOrchestrator({
         sessionManager: new SessionManager({ logService: ls }),
@@ -125,7 +97,7 @@ export class FlowEngineService {
       const result = await orchestrator.receiveMessage({
         phoneNumber,
         message,
-        flowId: resolvedFlowId,
+        flowId: flowId,
         toNumber: toNumber || phoneNumber,
         professionalUserId: professionalUserIdOverride || '',
       });

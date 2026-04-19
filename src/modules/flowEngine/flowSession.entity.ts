@@ -15,8 +15,8 @@ export class FlowSession extends Model {
   declare id: string;
 
   @ForeignKey(() => Flow)
-  @Column({ type: DataType.UUID, allowNull: false })
-  declare flow_id: string;
+  @Column({ type: DataType.UUID, allowNull: true })
+  declare flow_id: string | null;
 
   @BelongsTo(() => Flow)
   declare flow: Flow;
