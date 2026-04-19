@@ -32,12 +32,15 @@ export class SessionManager {
       const normalizedPhone = this.normalizePhone(phoneNumber);
 
       // Look for existing active session
+      const whereClause: any = {
+        phone_number: normalizedPhone,
+        status: ['active', 'waiting_input'],
+      };
+      // Only filter by flow_id if provided (AI Orchestrator sessions have no flow_id)
+      if (flowId) whereClause.flow_id = flowId;
+
       let session = await FlowSession.findOne({
-        where: {
-          phone_number: normalizedPhone,
-          flow_id: flowId,
-          status: ['active', 'waiting_input'],
-        },
+        where: whereClause,
         order: [['updated_at', 'DESC']],
       });
 

@@ -22,7 +22,7 @@ import { WhatsappConnection } from '../whatsapp/whatsapp.entity';
 export interface ReceiveMessageParams {
   phoneNumber: string;
   message: string;
-  flowId: string;
+  flowId?: string;
   toNumber: string;
   professionalUserId: string;
 }
@@ -196,7 +196,7 @@ export class AIOrchestrator {
     }
   }
 
-  private async selectAgent(flowId: string, userId: string): Promise<Agent | AdminAgent | null> {
+  private async selectAgent(flowId: string | undefined, userId: string): Promise<Agent | AdminAgent | null> {
     try {
       // Check global setting use_admin_agent
       const adminSetting = await Setting.findOne({
@@ -204,7 +204,7 @@ export class AIOrchestrator {
       });
       const useAdminAgent = adminSetting?.value === 'true';
 
-      if (useAdminAgent) {
+      if (useAdminAgent && flowId) {
         const flow = await Flow.findByPk(flowId);
         if (flow?.admin_agent_id) {
           const adminAgent = await AdminAgent.findByPk(flow.admin_agent_id);
