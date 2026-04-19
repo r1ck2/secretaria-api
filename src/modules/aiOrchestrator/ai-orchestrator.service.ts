@@ -198,7 +198,21 @@ export class AIOrchestrator {
 
   private async selectAgent(flowId: string | undefined, userId: string): Promise<Agent | AdminAgent | null> {
     try {
-      // Check global setting use_admin_agent
+      // When AI Orchestrator is active (no flowId), use the first active AdminAgent directly
+      if (!flowId) {
+        const adminAgent = await AdminAgent.findOne({
+          where: { status: true },
+          order: [['created_at', 'DESC']],
+        });
+        if (adminAgent?.openai_api_key) {
+          this.log(LogAction.AGENT_SELECTED, 'Using active admin agent (AI Orchestrator mode)', {
+            agent_id: adminAgent.id,
+          });
+          return adminAgent;
+        }
+      }
+
+      // FlowEngine mode: check use_admin_agent setting
       const adminSetting = await Setting.findOne({
         where: { key: 'use_admin_agent', is_admin: true },
       });
@@ -209,7 +223,7 @@ export class AIOrchestrator {
         if (flow?.admin_agent_id) {
           const adminAgent = await AdminAgent.findByPk(flow.admin_agent_id);
           if (adminAgent?.openai_api_key) {
-            this.log(LogAction.AGENT_SELECTED, 'Using admin agent', {
+            this.log(LogAction.AGENT_SELECTED, 'Using admin agent from flow', {
               agent_id: adminAgent.id,
               flow_id: flowId,
             });
@@ -218,7 +232,7 @@ export class AIOrchestrator {
         }
       }
 
-      // Fall back to professional agent
+      // Fallback: professional's own agent
       const agent = await Agent.findOne({
         where: { user_id: userId, status: true },
         order: [['created_at', 'DESC']],
