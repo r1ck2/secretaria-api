@@ -18,6 +18,7 @@ import { FlowBlockedCustomer } from '../flowBlock/flowBlock.entity';
 import { EvolutionApiService } from '../evolution/evolution.service';
 import { LogService } from '../log/log.service';
 import { WhatsappConnection } from '../whatsapp/whatsapp.entity';
+import { FlowSession } from '../flowEngine/flowSession.entity';
 
 export interface ReceiveMessageParams {
   phoneNumber: string;
@@ -82,8 +83,12 @@ export class AIOrchestrator {
       timestamp: new Date().toISOString(),
     });
 
-    // 4. Enrich context
-    const context = await this.deps.sessionManager.enrichContext(session);
+    // 4. Reload session from DB to get updated history (pushMessage saves to DB, not in-memory)
+    const freshSession = await FlowSession.findByPk(session.id);
+    if (!freshSession) throw new Error(`Session ${session.id} not found after push`);
+
+    // 4b. Enrich context from fresh session
+    const context = await this.deps.sessionManager.enrichContext(freshSession);
 
     // If sender name from WhatsApp is available and customer not yet registered, store it
     if (senderName && !context.name) {
@@ -103,7 +108,7 @@ export class AIOrchestrator {
       const noAgentMsg = 'Olá! Estou temporariamente indisponível. Por favor, tente novamente em instantes.';
       await this.sendWhatsApp(professionalUserId, normalizedPhone, noAgentMsg);
       return {
-        session_id: session.id,
+        session_id: freshSession.id,
         messages_sent: [noAgentMsg],
         tools_executed: [],
         status: 'error',
@@ -113,19 +118,19 @@ export class AIOrchestrator {
     // 6. Build OpenAI client from agent config
     const openAIClient = this.deps.openAIClient ?? new OpenAIClient(agent.openai_api_key!);
 
-    // 7. Serialize context for system prompt
-    const history = session.getHistory() as HistoryEntry[];
+    // 7. Read history from fresh session — includes the message just pushed
+    const history = freshSession.getHistory() as HistoryEntry[];
     const contextString = serializeForOpenAI(context, history);
     const systemPrompt = this.buildSystemPrompt(agent.system_prompt, contextString);
 
-    // 8. Build input messages (history without tool entries)
+    // 8. Build input messages from history (user + assistant only, no tool entries)
     const inputMessages = history
       .filter(h => h.role === 'user' || h.role === 'assistant')
       .map(h => ({ role: h.role as 'user' | 'assistant', content: h.content }));
 
     // 9. Call OpenAI — with full tool-calling loop
-    this.log(LogAction.OPENAI_REQUEST, `🤖 Enviando para AI [${agent.model}] — sessão ${session.id} — ${inputMessages.length} msgs no histórico`, {
-      session_id: session.id,
+    this.log(LogAction.OPENAI_REQUEST, `🤖 Enviando para AI [${agent.model}] — sessão ${freshSession.id} — ${inputMessages.length} msgs no histórico`, {
+      session_id: freshSession.id,
       phone_number: normalizedPhone,
       user_id: professionalUserId,
       model: agent.model,
@@ -152,7 +157,7 @@ export class AIOrchestrator {
       let parsed = openAIClient.parseResponse(rawResponse);
 
       this.log(LogAction.OPENAI_RESPONSE, `🤖 AI respondeu (1ª chamada) — finish_reason: ${rawResponse.finish_reason} — tools: ${parsed.tool_calls.length} — texto: "${parsed.output_text?.slice(0, 80) ?? 'nenhum'}"`, {
-        session_id: session.id,
+        session_id: freshSession.id,
         phone_number: normalizedPhone,
         finish_reason: rawResponse.finish_reason,
         has_tool_calls: parsed.tool_calls.length > 0,
@@ -170,7 +175,7 @@ export class AIOrchestrator {
           const startTime = Date.now();
 
           this.log(LogAction.TOOL_EXECUTION_START, `🔧 Executando tool: ${toolName}`, {
-            session_id: session.id,
+            session_id: freshSession.id,
             phone_number: normalizedPhone,
             tool_call_id: toolCall.id,
             tool_args: toolCall.function.arguments.slice(0, 200),
@@ -185,7 +190,7 @@ export class AIOrchestrator {
             toolSummaries.push({ tool_name: toolName, status: 'success', execution_time_ms: elapsed });
 
             this.log(LogAction.TOOL_EXECUTION_COMPLETE, `✅ Tool ${toolName} concluída em ${elapsed}ms`, {
-              session_id: session.id,
+              session_id: freshSession.id,
               phone_number: normalizedPhone,
               tool_name: toolName,
               execution_time_ms: elapsed,
@@ -203,7 +208,7 @@ export class AIOrchestrator {
           } catch (err) {
             const elapsed = Date.now() - startTime;
             toolSummaries.push({ tool_name: toolName, status: 'error', execution_time_ms: elapsed, error: (err as Error).message });
-            this.logError(LogAction.TOOL_ERROR, err as Error, { session_id: session.id, tool_name: toolName });
+            this.logError(LogAction.TOOL_ERROR, err as Error, { session_id: freshSession.id, tool_name: toolName });
             resultContent = JSON.stringify({ error: (err as Error).message });
           }
 
@@ -211,16 +216,14 @@ export class AIOrchestrator {
         }
 
         // Update context in session after all tools ran
-        await this.deps.sessionManager.updateContext(session.id, context);
+        await this.deps.sessionManager.updateContext(freshSession.id, context);
 
-        // Second call — send tool results back to get the final text response
-        // Rebuild context string with updated context (slots, appointments, etc.)
-        const updatedHistory = session.getHistory() as HistoryEntry[];
+        // Second call — rebuild context with updated slots/appointments
+        const updatedHistory = freshSession.getHistory() as HistoryEntry[];
         const updatedContextString = serializeForOpenAI(context, updatedHistory);
         const updatedSystemPrompt = this.buildSystemPrompt(agent.system_prompt, updatedContextString);
         const updatedParams = { ...openAIParams, instructions: updatedSystemPrompt };
 
-        // The assistant message that triggered the tool calls (needed for the second call)
         const assistantMsg = {
           role: 'assistant' as const,
           content: null as any,
@@ -235,7 +238,7 @@ export class AIOrchestrator {
         const secondParsed = openAIClient.parseResponse(secondRaw);
 
         this.log(LogAction.OPENAI_RESPONSE, `🤖 AI respondeu (2ª chamada, pós-tools) — "${secondParsed.output_text?.slice(0, 100) ?? 'nenhum'}"`, {
-          session_id: session.id,
+          session_id: freshSession.id,
           phone_number: normalizedPhone,
           finish_reason: secondRaw.finish_reason,
           output_preview: secondParsed.output_text?.slice(0, 300),
@@ -243,15 +246,14 @@ export class AIOrchestrator {
 
         finalText = secondParsed.output_text;
       } else {
-        // No tool calls — use the direct text response
         finalText = parsed.output_text;
       }
     } catch (err) {
-      this.logError(LogAction.OPENAI_ERROR, err as Error, { session_id: session.id });
+      this.logError(LogAction.OPENAI_ERROR, err as Error, { session_id: freshSession.id });
       const fallbackMsg = 'Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em instantes.';
       await this.sendWhatsApp(professionalUserId, normalizedPhone, fallbackMsg);
       return {
-        session_id: session.id,
+        session_id: freshSession.id,
         messages_sent: [fallbackMsg],
         tools_executed: toolSummaries,
         status: 'error',
@@ -265,29 +267,28 @@ export class AIOrchestrator {
       messagesSent.push(finalText);
 
       this.log(LogAction.MESSAGE_SENT, `📤 Resposta enviada ao cliente ${normalizedPhone}: "${finalText.slice(0, 100)}${finalText.length > 100 ? '...' : ''}"`, {
-        session_id: session.id,
+        session_id: freshSession.id,
         phone_number: normalizedPhone,
         user_id: professionalUserId,
         tools_used: toolSummaries.map(t => t.tool_name),
         response_preview: finalText.slice(0, 300),
       });
 
-      await this.deps.sessionManager.pushMessage(session.id, {
+      await this.deps.sessionManager.pushMessage(freshSession.id, {
         role: 'assistant',
         content: finalText,
         timestamp: new Date().toISOString(),
       });
     } else {
-      // Truly no output — ask AI to retry with explicit instruction
       this.logError(LogAction.OPENAI_ERROR, new Error('AI returned empty response'), {
-        session_id: session.id,
+        session_id: freshSession.id,
         phone_number: normalizedPhone,
         user_id: professionalUserId,
       });
       const retryMsg = 'Desculpe, não consegui processar sua mensagem. Poderia reformular de outra forma?';
       await this.sendWhatsApp(professionalUserId, normalizedPhone, retryMsg);
       messagesSent.push(retryMsg);
-      await this.deps.sessionManager.pushMessage(session.id, {
+      await this.deps.sessionManager.pushMessage(freshSession.id, {
         role: 'assistant',
         content: retryMsg,
         timestamp: new Date().toISOString(),
@@ -295,7 +296,7 @@ export class AIOrchestrator {
     }
 
     return {
-      session_id: session.id,
+      session_id: freshSession.id,
       messages_sent: messagesSent,
       tools_executed: toolSummaries,
       status: 'completed',

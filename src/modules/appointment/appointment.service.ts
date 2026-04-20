@@ -6,6 +6,7 @@ export class AppointmentService {
   async create(data: {
     customer_id: string;
     user_id: string;
+    customer_phone: string;
     calendar_event_id: string;
     title: string;
     start_at: string;

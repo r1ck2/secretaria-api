@@ -70,6 +70,7 @@ export class BookAppointmentTool extends AbstractTool {
       const appointment = await this.appointmentService.create({
         customer_id: context.customer_id,
         user_id: context.user_id,
+        customer_phone: context.phone,
         calendar_event_id: calendarEventId,
         title: appointmentTitle,
         start_at: chosenSlot.start,
