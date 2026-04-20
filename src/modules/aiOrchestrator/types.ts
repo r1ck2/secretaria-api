@@ -155,6 +155,7 @@ export type ToolName =
   | 'set_pending_slot'
   | 'book_appointment'
   | 'cancel_appointment'
+  | 'confirm_cancel'
   | 'create_todo'
   | 'register_customer';
 

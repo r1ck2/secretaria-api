@@ -45,6 +45,9 @@ export class CancelAppointmentTool extends AbstractTool {
         end: apt.end_at,
       }));
 
+      // Save to context so AI can reference IDs for confirm_cancel
+      (context as any).appointments = formattedAppointments;
+
       this.log(LogAction.TOOL_EXECUTION_COMPLETE, 'cancel_appointment completed successfully', {
         user_id: context.user_id,
         phone: context.phone,

@@ -26,12 +26,16 @@ export class AppointmentService {
     user_id: string;
     status?: string;
   }): Promise<Appointment[]> {
+    // Include appointments from last 24h onwards (not just future)
+    const since = new Date();
+    since.setHours(since.getHours() - 24);
+
     return Appointment.findAll({
       where: {
         customer_id: params.customer_id,
         user_id: params.user_id,
         status: params.status || 'confirmed',
-        start_at: { [Op.gte]: new Date() },
+        start_at: { [Op.gte]: since },
       },
       order: [['start_at', 'ASC']],
       include: [{ association: 'customer', attributes: ['name', 'phone'] }],

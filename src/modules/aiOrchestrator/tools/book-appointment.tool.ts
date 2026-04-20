@@ -54,16 +54,22 @@ export class BookAppointmentTool extends AbstractTool {
       let calendarEventId = 'local_only';
 
       if (useGoogleCalendar && this.calendarService) {
-        // Create event in Google Calendar
-        const calendarEvent = await this.calendarService.createEvent({
-          userId: context.user_id,
-          title: appointmentTitle,
-          description: `Agendamento via WhatsApp\nCliente: ${context.name || 'N/A'}\nTelefone: ${context.phone}`,
-          start: chosenSlot.start,
-          end: chosenSlot.end,
-          attendees: context.email ? [{ email: context.email }] : [],
-        });
-        calendarEventId = calendarEvent.id;
+        try {
+          const calendarEvent = await this.calendarService.createEvent({
+            userId: context.user_id,
+            title: appointmentTitle,
+            description: `Agendamento via WhatsApp\nCliente: ${context.name || 'N/A'}\nTelefone: ${context.phone}`,
+            start: chosenSlot.start,
+            end: chosenSlot.end,
+            attendees: context.email ? [{ email: context.email }] : [],
+          });
+          calendarEventId = calendarEvent.id;
+        } catch (calErr: any) {
+          this.log(LogAction.TOOL_ERROR, `Google Calendar createEvent falhou (salvando só no banco): ${calErr.message}`, {
+            user_id: context.user_id,
+          });
+          // Non-fatal — save locally only
+        }
       }
 
       // Persist appointment locally

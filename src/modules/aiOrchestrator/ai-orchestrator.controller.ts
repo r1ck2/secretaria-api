@@ -8,6 +8,7 @@ import { FlowSession, Log, Setting } from '@/entities';
 import { Op } from 'sequelize';
 import { customerService } from '../customer/customer.service';
 import { appointmentService } from '../appointment/appointment.service';
+import { calendarServiceAdapter } from './utils/calendar-adapter';
 
 // Singleton instances
 const logService = new LogService();
@@ -15,7 +16,7 @@ const evolutionApiService = new EvolutionApiService();
 const sessionManager = new SessionManager({ logService, appointmentService });
 const toolExecutor = new ToolExecutor({
   logService,
-  calendarService: null,
+  calendarService: calendarServiceAdapter,
   customerService,
   appointmentService,
   kanbanService: null,

@@ -95,6 +95,9 @@ export class ToolExecutor {
         case 'cancel_appointment':
           result = await this.cancelAppointmentTool.execute(args, context);
           break;
+        case 'confirm_cancel':
+          result = await this.cancelAppointmentTool.cancelSpecificAppointment(args.appointment_id, context);
+          break;
         case 'create_todo':
           result = await this.createTodoTool.execute(args, context);
           break;
@@ -157,7 +160,7 @@ export class ToolExecutor {
   }
 
   private isValidToolName(toolName: string): toolName is ToolName {
-    const validNames: ToolName[] = ['list_slots', 'set_pending_slot', 'book_appointment', 'cancel_appointment', 'create_todo', 'register_customer'];
+    const validNames: ToolName[] = ['list_slots', 'set_pending_slot', 'book_appointment', 'cancel_appointment', 'confirm_cancel', 'create_todo', 'register_customer'];
     return validNames.includes(toolName as ToolName);
   }
 
