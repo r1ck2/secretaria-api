@@ -88,13 +88,7 @@ export function serializeForOpenAI(context: SessionContext, history?: HistoryEnt
   // Available slots — critical for slot selection flow
   if (context.slots && context.slots.length > 0) {
     const slotLines = context.slots.map(slot => formatSlot(slot));
-    parts.push(`[HORÁRIOS DISPONÍVEIS — aguardando escolha do cliente]\n${slotLines.join('\n')}\nINSTRUÇÃO: Se o cliente responder com número (1-${context.slots.length}), interprete como escolha deste slot.`);
-  }
-
-  // Pending slot confirmation
-  if (ctx.pending_slot_confirmation) {
-    const s = ctx.pending_slot_confirmation;
-    parts.push(`[AGUARDANDO CONFIRMAÇÃO]\nSlot escolhido: ${s.label}\nINSTRUÇÃO: Se cliente responder "sim" ou confirmar, chame book_appointment com slot_index=${s.index}. Se responder "não", liste os horários novamente.`);
+    parts.push(`[HORÁRIOS DISPONÍVEIS — aguardando escolha do cliente]\n${slotLines.join('\n')}\nINSTRUÇÃO: Quando o cliente responder com um número (1-${context.slots.length}), chame IMEDIATAMENTE book_appointment com esse slot_index. NÃO peça confirmação adicional.`);
   }
 
   // Active appointments
@@ -136,8 +130,7 @@ function deriveStage(context: SessionContext, history?: HistoryEntry[]): string 
 
   if (msgCount <= 1) return 'BOAS-VINDAS — primeira interação, cumprimente e pergunte como pode ajudar';
   if (!context.is_returning_customer && !context.customer_id) return 'IDENTIFICAÇÃO — cliente não cadastrado, colete o nome';
-  if (ctx.pending_slot_confirmation) return 'CONFIRMAÇÃO — aguardando cliente confirmar o slot escolhido com "sim" ou "não"';
-  if (context.slots && context.slots.length > 0) return 'LISTAGEM — horários já foram listados, aguardando cliente escolher um número (1-' + context.slots.length + ')';
+  if (context.slots && context.slots.length > 0) return `AGUARDANDO ESCOLHA — horários listados, quando cliente enviar número (1-${context.slots.length}) chame book_appointment imediatamente`;
   if (ctx.last_booked_appointment) return 'PÓS-AGENDAMENTO — agendamento realizado, ofereça mais ajuda';
   return 'ATENDIMENTO — aguardando intenção do cliente';
 }

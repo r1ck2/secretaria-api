@@ -25,31 +25,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
-      name: 'set_pending_slot',
-      description: 'Registra o slot escolhido pelo cliente para confirmação. Chame quando o cliente escolher um número de slot (1, 2, 3 ou 4) ANTES de confirmar o agendamento. Após chamar esta tool, apresente o resumo do slot e peça confirmação.',
-      parameters: {
-        type: 'object',
-        properties: {
-          slot_index: {
-            type: 'number',
-            description: 'Índice do slot escolhido pelo cliente (1-4)'
-          }
-        },
-        required: ['slot_index']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
       name: 'book_appointment',
-      description: 'Confirma e cria o agendamento. Chame SOMENTE quando o cliente confirmar explicitamente (responder "sim", "confirmar", "pode agendar", "ok" etc.) após ter escolhido um slot. Use o slot_index do slot pendente de confirmação.',
+      description: 'Cria o agendamento no slot escolhido pelo cliente. Chame quando o cliente responder com um número (1, 2, 3 ou 4) indicando qual slot quer. NÃO espere confirmação adicional — agende diretamente quando o cliente escolher o número.',
       parameters: {
         type: 'object',
         properties: {
           slot_index: {
             type: 'number',
-            description: 'Índice do slot a agendar (1-4). Use o mesmo índice do set_pending_slot.'
+            description: 'Número do slot escolhido pelo cliente (1-4), conforme a lista apresentada.'
           }
         },
         required: ['slot_index']
