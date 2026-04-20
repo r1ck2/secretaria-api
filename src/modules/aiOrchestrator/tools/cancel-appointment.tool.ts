@@ -110,6 +110,15 @@ export class CancelAppointmentTool extends AbstractTool {
       // Update status to cancelled (soft delete)
       await this.appointmentService.updateStatus(appointmentId, 'cancelled');
 
+      // Track cancelled event IDs so list_slots can exclude them from busy times
+      const cancelledIds: string[] = (context as any).cancelled_calendar_event_ids || [];
+      if (appointment.calendar_event_id && appointment.calendar_event_id !== 'local_only') {
+        cancelledIds.push(appointment.calendar_event_id);
+      }
+      (context as any).cancelled_calendar_event_ids = cancelledIds;
+      // Clear appointments list so next cancel_appointment call refreshes
+      (context as any).appointments = undefined;
+
       // Log cancellation for audit
       this.log('appointment_cancelled', 'Appointment cancelled via AI orchestrator', {
         appointment_id: appointmentId,

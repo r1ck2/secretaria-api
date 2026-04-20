@@ -44,6 +44,7 @@ export class ListSlotsTool extends AbstractTool {
           workingDays,
           workingHoursStart: workingStart,
           workingHoursEnd: workingEnd,
+          excludeEventIds: (context as any).cancelled_calendar_event_ids || [],
         });
       } else {
         // Generate slots based on working hours without Google Calendar
@@ -90,18 +91,21 @@ export class ListSlotsTool extends AbstractTool {
 
   private formatSlotLabel(isoDateTime: string): string {
     const date = new Date(isoDateTime);
-    const day = date.getDate().toString().padStart(2, '0');
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const year = date.getFullYear();
-    const hours = date.getHours().toString().padStart(2, '0');
-    const minutes = date.getMinutes().toString().padStart(2, '0');
-
-    return `${day}/${month}/${year} às ${hours}:${minutes}`;
+    // Format in Brazil timezone to show the correct local time
+    return date.toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).replace(',', ' às');
   }
 
   /**
-   * Generates available slots based on working hours without Google Calendar.
-   * Returns up to 4 slots within the next 7 days respecting working days/hours.
+   * Generates slots without Google Calendar — delegates to calendar adapter logic.
+   * Kept for fallback when calendarService is null.
    */
   private generateLocalSlots(
     startDate: Date,
@@ -110,38 +114,57 @@ export class ListSlotsTool extends AbstractTool {
     workingStart: string,
     workingEnd: string
   ): { start: string; end: string; duration_minutes: number }[] {
-    const DAY_MAP: Record<number, string> = { 1: 'seg', 2: 'ter', 3: 'qua', 4: 'qui', 5: 'sex', 6: 'sab', 0: 'dom' };
+    const TZ = 'America/Sao_Paulo';
     const [startH, startM] = workingStart.split(':').map(Number);
     const [endH, endM] = workingEnd.split(':').map(Number);
     const durationMinutes = 60;
     const slots: { start: string; end: string; duration_minutes: number }[] = [];
 
-    const cursor = new Date(startDate);
-    cursor.setHours(startH, startM, 0, 0);
-    // If current time is past start, move to next slot
-    if (cursor <= new Date()) {
-      cursor.setHours(cursor.getHours() + 1, 0, 0, 0);
+    const dayNames: Record<string, string> = {
+      Sunday: 'dom', Monday: 'seg', Tuesday: 'ter', Wednesday: 'qua',
+      Thursday: 'qui', Friday: 'sex', Saturday: 'sab',
+    };
+
+    // Start at working start today in Brazil TZ
+    const todayStr = startDate.toLocaleDateString('en-CA', { timeZone: TZ });
+    const [ty, tm, td] = todayStr.split('-').map(Number);
+
+    // Build cursor at working start in Brazil TZ
+    const buildCursor = (y: number, mo: number, d: number, h: number, mi: number): Date => {
+      const sample = new Date(`${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}T${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}:00`);
+      const utcMs = new Date(sample.toLocaleString('en-US', { timeZone: 'UTC' })).getTime();
+      const tzMs = new Date(sample.toLocaleString('en-US', { timeZone: TZ })).getTime();
+      return new Date(sample.getTime() + (utcMs - tzMs));
+    };
+
+    let cursor = buildCursor(ty, tm, td, startH, startM);
+
+    // Advance past current time
+    const now = new Date();
+    if (cursor <= now) {
+      const nowTZ = now.toLocaleTimeString('en-US', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false });
+      const [nh] = nowTZ.split(':').map(Number);
+      cursor = buildCursor(ty, tm, td, nh + 1, 0);
     }
 
-    while (cursor < endDate && slots.length < 4) {
-      const dayKey = DAY_MAP[cursor.getDay()];
-      const cursorH = cursor.getHours();
-      const cursorM = cursor.getMinutes();
+    let iterations = 0;
+    while (cursor < endDate && slots.length < 4 && iterations < 200) {
+      iterations++;
+      const dayKey = dayNames[cursor.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long' })] || 'seg';
+      const timeTZ = cursor.toLocaleTimeString('en-US', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false });
+      const [cH, cM] = timeTZ.split(':').map(Number);
+      const cursorMinutes = cH * 60 + cM;
       const endMinutes = endH * 60 + endM;
-      const cursorMinutes = cursorH * 60 + cursorM;
 
       if (workingDays.includes(dayKey) && cursorMinutes + durationMinutes <= endMinutes) {
         const slotEnd = new Date(cursor.getTime() + durationMinutes * 60000);
-        slots.push({
-          start: cursor.toISOString(),
-          end: slotEnd.toISOString(),
-          duration_minutes: durationMinutes,
-        });
-        cursor.setTime(cursor.getTime() + durationMinutes * 60000);
+        slots.push({ start: cursor.toISOString(), end: slotEnd.toISOString(), duration_minutes: durationMinutes });
+        cursor = new Date(cursor.getTime() + durationMinutes * 60000);
       } else {
-        // Move to next day at working start
-        cursor.setDate(cursor.getDate() + 1);
-        cursor.setHours(startH, startM, 0, 0);
+        const nextDayStr = new Date(cursor.getTime() + 24 * 60 * 60 * 1000)
+          .toLocaleDateString('en-CA', { timeZone: TZ });
+        const [ny, nm, nd] = nextDayStr.split('-').map(Number);
+        cursor = buildCursor(ny, nm, nd, startH, startM);
       }
     }
 
