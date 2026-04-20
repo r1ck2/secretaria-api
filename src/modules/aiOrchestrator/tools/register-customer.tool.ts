@@ -30,10 +30,14 @@ export class RegisterCustomerTool extends AbstractTool {
         throw new Error('Nome é obrigatório e deve ser uma string não vazia.');
       }
 
-      // Check if customer already exists with this phone
-      const existingCustomer = await this.customerService.findByPhone(context.phone);
+      // Check if customer already exists with this phone FOR THIS PROFESSIONAL
+      const existingCustomer = await this.customerService.findByPhone(context.phone, context.user_id);
       if (existingCustomer) {
-        throw new Error('Cliente já cadastrado com este número de telefone.');
+        // Already registered for this professional — update context and return success
+        return {
+          customer: existingCustomer,
+          message: `Bem-vindo(a) de volta, ${existingCustomer.name}! Seu cadastro já existe.`,
+        };
       }
 
       // Create new customer
@@ -47,6 +51,12 @@ export class RegisterCustomerTool extends AbstractTool {
       };
 
       const customer = await this.customerService.create(customerData);
+
+      // Update context so subsequent tools (book_appointment etc.) know the customer
+      context.customer_id = customer.id;
+      context.name = customer.name;
+      context.email = customer.email;
+      context.is_returning_customer = true;
 
       this.log(LogAction.TOOL_EXECUTION_COMPLETE, 'register_customer completed successfully', {
         user_id: context.user_id,
