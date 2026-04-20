@@ -36,6 +36,22 @@ export function serializeForOpenAI(context: SessionContext, history?: HistoryEnt
   const parts: string[] = [];
   const ctx = context as any;
 
+  // Current date/time — critical so AI uses the correct year when parsing dates
+  const now = new Date();
+  const currentDateStr = now.toLocaleDateString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+  const currentTimeStr = now.toLocaleTimeString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  parts.push(`[DATA E HORA ATUAL]\n${currentDateStr} às ${currentTimeStr}\nAno atual: ${now.getFullYear()}\nINSTRUÇÃO: Ao interpretar datas mencionadas pelo cliente (ex: "dia 28", "próxima segunda"), use SEMPRE o ano ${now.getFullYear()} como referência.`);
+
   // Company info
   if (ctx.company_name) {
     parts.push(`[EMPRESA]\nNome: ${ctx.company_name}`);
