@@ -479,6 +479,7 @@ ${contextString}`;
       const settings = await Setting.findAll({ where: { user_id: userId } });
       const map = Object.fromEntries(settings.map((s: any) => [s.key, s.value]));
       if (map.company_name) context.company_name = map.company_name;
+      if (map.appointment_prefix) context.appointment_prefix = map.appointment_prefix;
       if (map.use_google_calendar !== undefined) context.use_google_calendar = map.use_google_calendar !== 'false';
       if (map.service_type) context.service_type = map.service_type;
       if (map.working_days) {

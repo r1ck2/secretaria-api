@@ -41,12 +41,14 @@ export class BookAppointmentTool extends AbstractTool {
         throw new Error('Cliente não encontrado. Execute register_customer primeiro.');
       }
 
-      // Build appointment title with service type if configured
-      const serviceType = (context as any).service_type;
-      const baseTitle = `${context.name || 'Cliente'}`;
+      // Build appointment title: prefix — Nome (service_type)
+      const ctx = context as any;
+      const prefix = ctx.appointment_prefix || 'Consulta';
+      const customerName = context.name || 'Cliente';
+      const serviceType = ctx.service_type;
       const appointmentTitle = serviceType && serviceType !== 'default'
-        ? `${baseTitle} (${serviceType})`
-        : baseTitle;
+        ? `${prefix} — ${customerName} (${serviceType})`
+        : `${prefix} — ${customerName}`;
 
       // Check if Google Calendar is enabled for this professional
       const useGoogleCalendar = (context as any).use_google_calendar !== false;
