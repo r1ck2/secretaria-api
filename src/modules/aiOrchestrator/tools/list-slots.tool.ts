@@ -33,15 +33,13 @@ export class ListSlotsTool extends AbstractTool {
       let maxSlots = 4;
 
       if (target_date) {
-        // Client requested a specific date — search only that day (and next 2 days if needed)
-        startDate = new Date(`${target_date}T00:00:00`);
-        endDate = new Date(`${target_date}T23:59:59`);
-        // If specific time requested, try to find that slot first
+        // Parse target_date as Brazil timezone midnight to avoid UTC day-shift bug
+        // "2025-04-28" → 2025-04-28T00:00:00-03:00 (not UTC midnight)
+        startDate = new Date(`${target_date}T00:00:00-03:00`);
+        endDate = new Date(`${target_date}T23:59:59-03:00`);
         if (target_time) {
-          maxSlots = 1; // Just check if that specific time is available
+          maxSlots = 1;
         }
-        // If no slots found on target_date, expand to next 3 days
-        // (handled below by fallback)
       } else {
         startDate = new Date();
         endDate = new Date();
@@ -175,9 +173,10 @@ export class ListSlotsTool extends AbstractTool {
 
     let cursor = buildCursor(ty, tm, td, startH, startM);
 
-    // Advance past current time
+    // Only advance past current time if startDate is today
     const now = new Date();
-    if (cursor <= now) {
+    const isToday = todayStr === now.toLocaleDateString('en-CA', { timeZone: TZ });
+    if (isToday && cursor <= now) {
       const nowTZ = now.toLocaleTimeString('en-US', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false });
       const [nh] = nowTZ.split(':').map(Number);
       cursor = buildCursor(ty, tm, td, nh + 1, 0);

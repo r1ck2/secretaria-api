@@ -138,20 +138,25 @@ export class CalendarServiceAdapter {
 
     const slots: { start: string; end: string; duration_minutes: number }[] = [];
 
-    // Start cursor at current time (in Brazil TZ) rounded up to next hour
+    // Start cursor: today in Brazil TZ at working start or current hour (whichever is later)
     const now = new Date();
-    const { hour: nowH, minute: nowM } = getHourMinuteInTZ(now);
-    // Round up to next full hour
-    const startHour = nowM > 0 ? nowH + 1 : nowH;
-
-    // Build cursor: today in Brazil TZ at working start or current hour (whichever is later)
     const todayStr = now.toLocaleDateString('en-CA', { timeZone: TZ }); // YYYY-MM-DD
-    const [ty, tm, td] = todayStr.split('-').map(Number);
 
-    // Start at working start time today, but not before current time
+    // Determine the actual start date in Brazil TZ
+    const startDateBR = new Date(params.startDate);
+    const startDateStrBR = startDateBR.toLocaleDateString('en-CA', { timeZone: TZ });
+    const [ty, tm, td] = startDateStrBR.split('-').map(Number);
+
     let cursor = toTZDate(ty, tm, td, startH, startM);
-    if (startHour > startH || (startHour === startH && nowM > startM)) {
-      cursor = toTZDate(ty, tm, td, startHour, 0);
+
+    // Only advance past current time if the start date is today
+    const isToday = startDateStrBR === todayStr;
+    if (isToday) {
+      const { hour: nowH, minute: nowM } = getHourMinuteInTZ(now);
+      const startHour = nowM > 0 ? nowH + 1 : nowH;
+      if (startHour > startH || (startHour === startH && nowM > startM)) {
+        cursor = toTZDate(ty, tm, td, startHour, 0);
+      }
     }
 
     const endDate = new Date(params.endDate);
