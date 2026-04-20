@@ -46,11 +46,11 @@ export class AIOrchestrator {
     const { phoneNumber, message, flowId, toNumber, professionalUserId, senderName } = params;
     const normalizedPhone = normalizePhone(phoneNumber);
 
-    this.log(LogAction.MESSAGE_RECEIVED, 'Message received', {
+    // ── LOG: Mensagem recebida ──────────────────────────────────────────────
+    this.log(LogAction.MESSAGE_RECEIVED, `📨 Mensagem recebida de ${normalizedPhone}: "${message.slice(0, 80)}${message.length > 80 ? '...' : ''}"`, {
       phone_number: normalizedPhone,
-      flow_id: flowId,
       user_id: professionalUserId,
-      message_length: message.length,
+      message_preview: message.slice(0, 200),
     });
 
     // 1. Check if customer is blocked
@@ -124,8 +124,10 @@ export class AIOrchestrator {
       .map(h => ({ role: h.role as 'user' | 'assistant', content: h.content }));
 
     // 9. Call OpenAI — with full tool-calling loop
-    this.log(LogAction.OPENAI_REQUEST, 'Calling OpenAI', {
+    this.log(LogAction.OPENAI_REQUEST, `🤖 Enviando para AI [${agent.model}] — sessão ${session.id} — ${inputMessages.length} msgs no histórico`, {
       session_id: session.id,
+      phone_number: normalizedPhone,
+      user_id: professionalUserId,
       model: agent.model,
       history_length: inputMessages.length,
     });
@@ -149,11 +151,13 @@ export class AIOrchestrator {
       let rawResponse = await openAIClient.createResponse(openAIParams);
       let parsed = openAIClient.parseResponse(rawResponse);
 
-      this.log(LogAction.OPENAI_RESPONSE, 'OpenAI first response', {
+      this.log(LogAction.OPENAI_RESPONSE, `🤖 AI respondeu (1ª chamada) — finish_reason: ${rawResponse.finish_reason} — tools: ${parsed.tool_calls.length} — texto: "${parsed.output_text?.slice(0, 80) ?? 'nenhum'}"`, {
         session_id: session.id,
+        phone_number: normalizedPhone,
         finish_reason: rawResponse.finish_reason,
         has_tool_calls: parsed.tool_calls.length > 0,
-        output_preview: parsed.output_text?.slice(0, 100),
+        tool_names: parsed.tool_calls.map(t => t.function.name),
+        output_preview: parsed.output_text?.slice(0, 200),
       });
 
       // If the model wants to call tools, execute them and call again
@@ -165,9 +169,11 @@ export class AIOrchestrator {
           const toolName = toolCall.function.name;
           const startTime = Date.now();
 
-          this.log(LogAction.TOOL_EXECUTION_START, `Executing tool: ${toolName}`, {
+          this.log(LogAction.TOOL_EXECUTION_START, `🔧 Executando tool: ${toolName}`, {
             session_id: session.id,
+            phone_number: normalizedPhone,
             tool_call_id: toolCall.id,
+            tool_args: toolCall.function.arguments.slice(0, 200),
           });
 
           let resultContent = '';
@@ -178,12 +184,12 @@ export class AIOrchestrator {
 
             toolSummaries.push({ tool_name: toolName, status: 'success', execution_time_ms: elapsed });
 
-            this.log(LogAction.TOOL_EXECUTION_COMPLETE, `Tool completed: ${toolName}`, {
+            this.log(LogAction.TOOL_EXECUTION_COMPLETE, `✅ Tool ${toolName} concluída em ${elapsed}ms`, {
               session_id: session.id,
-              tool_call_id: toolCall.id,
-              execution_time_ms: elapsed,
-              success: result.success,
+              phone_number: normalizedPhone,
               tool_name: toolName,
+              execution_time_ms: elapsed,
+              result_preview: resultContent.slice(0, 200),
             });
 
             // Merge tool result data back into context
@@ -228,10 +234,11 @@ export class AIOrchestrator {
         );
         const secondParsed = openAIClient.parseResponse(secondRaw);
 
-        this.log(LogAction.OPENAI_RESPONSE, 'OpenAI second response (after tools)', {
+        this.log(LogAction.OPENAI_RESPONSE, `🤖 AI respondeu (2ª chamada, pós-tools) — "${secondParsed.output_text?.slice(0, 100) ?? 'nenhum'}"`, {
           session_id: session.id,
+          phone_number: normalizedPhone,
           finish_reason: secondRaw.finish_reason,
-          output_preview: secondParsed.output_text?.slice(0, 100),
+          output_preview: secondParsed.output_text?.slice(0, 300),
         });
 
         finalText = secondParsed.output_text;
@@ -256,14 +263,28 @@ export class AIOrchestrator {
     if (finalText) {
       await this.sendWhatsApp(professionalUserId, normalizedPhone, finalText);
       messagesSent.push(finalText);
+
+      this.log(LogAction.MESSAGE_SENT, `📤 Resposta enviada ao cliente ${normalizedPhone}: "${finalText.slice(0, 100)}${finalText.length > 100 ? '...' : ''}"`, {
+        session_id: session.id,
+        phone_number: normalizedPhone,
+        user_id: professionalUserId,
+        tools_used: toolSummaries.map(t => t.tool_name),
+        response_preview: finalText.slice(0, 300),
+      });
+
       await this.deps.sessionManager.pushMessage(session.id, {
         role: 'assistant',
         content: finalText,
         timestamp: new Date().toISOString(),
       });
     } else {
-      // Truly no output — ask to repeat
-      const retryMsg = 'Desculpe, não consegui processar sua mensagem. Poderia repetir de outra forma?';
+      // Truly no output — ask AI to retry with explicit instruction
+      this.logError(LogAction.OPENAI_ERROR, new Error('AI returned empty response'), {
+        session_id: session.id,
+        phone_number: normalizedPhone,
+        user_id: professionalUserId,
+      });
+      const retryMsg = 'Desculpe, não consegui processar sua mensagem. Poderia reformular de outra forma?';
       await this.sendWhatsApp(professionalUserId, normalizedPhone, retryMsg);
       messagesSent.push(retryMsg);
       await this.deps.sessionManager.pushMessage(session.id, {

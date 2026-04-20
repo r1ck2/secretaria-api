@@ -1,73 +1,56 @@
-# 📚 Documentação do Projeto
+# Documentação Técnica — AllcanceAgents API
 
-Esta pasta contém toda a documentação técnica e guias do projeto, organizados por categoria.
+## Arquitetura
 
-## 📁 Estrutura de Documentação
+### AI Orchestrator
+Fluxo principal de atendimento via WhatsApp:
 
-### 🔧 Flow Corrections
-**Pasta:** `flow-corrections/`
-
-Documentação completa das correções aplicadas ao fluxo de atendimento para garantir conformidade com as regras obrigatórias.
-
-#### Arquivos:
-- **`executive-summary.md`** - Resumo executivo para gestores
-- **`implementation-guide.md`** - Guia completo de implementação
-- **`technical-analysis.md`** - Análise técnica detalhada
-
-#### Acesso Rápido:
-```bash
-# Aplicar correções
-cd clerk-agents-api
-./scripts/apply-flow-corrections.sh
-
-# Ler documentação
-cat .kiro/docs/flow-corrections/executive-summary.md
+```
+WhatsApp → Evolution API → Webhook (triggerFlowEvolution)
+  → FlowEngineService.receiveMessage()
+    → [se use_ai_orchestrator=true] AIOrchestrator.receiveMessage()
+      1. Verifica bloqueio do cliente
+      2. Cria/recupera sessão (FlowSession)
+      3. Enriquece contexto (cliente, configurações do profissional)
+      4. Seleciona agente (selected_agent_id > admin_agent > professional_agent)
+      5. Chama OpenAI com system prompt + histórico + tools
+      6. Se tool_calls → executa tools → segunda chamada OpenAI com resultados
+      7. Envia resposta final via WhatsApp (Evolution API)
 ```
 
----
+### Tools disponíveis
+| Tool | Quando usar |
+|------|-------------|
+| `list_slots` | Cliente quer agendar — lista horários disponíveis |
+| `set_pending_slot` | Cliente escolheu um número de slot — registra para confirmação |
+| `book_appointment` | Cliente confirmou com "sim" — cria agendamento |
+| `cancel_appointment` | Cliente quer cancelar — lista agendamentos confirmados |
+| `register_customer` | Cliente não cadastrado — cria registro |
+| `create_todo` | Cliente quer falar com equipe — cria card no Kanban |
 
-## 📋 Padrões de Documentação
+### Configurações por profissional (cad_settings)
+| Chave | Descrição |
+|-------|-----------|
+| `company_name` | Nome da empresa apresentado ao cliente |
+| `selected_agent_id` | ID do agente admin escolhido pelo profissional |
+| `use_google_calendar` | Se false, agendamentos só no banco local |
+| `working_days` | JSON array de dias (seg, ter, qua, qui, sex, sab, dom) |
+| `working_hours_start` | Horário início (HH:MM) |
+| `working_hours_end` | Horário fim (HH:MM) |
+| `service_type` | default / presencial / online |
+| `appointment_duration_minutes` | Duração padrão em minutos |
+| `appointment_prefix` | Prefixo do título do agendamento |
 
-### Estrutura de Pastas
-```
-.kiro/
-├── docs/
-│   ├── README.md (este arquivo)
-│   ├── flow-corrections/
-│   │   ├── executive-summary.md
-│   │   ├── implementation-guide.md
-│   │   └── technical-analysis.md
-│   └── [outras-categorias]/
-├── settings/
-└── [outras-pastas-kiro]/
-```
+### Logs
+Módulos de log:
+- `ai_orchestrator` — fluxo da IA (recebimento, processamento, envio)
+- `evolution_api` — webhook e envio de mensagens
+- `flow_automation` — FlowEngine (modo legado)
 
-### Convenções de Nomenclatura
-- **executive-summary.md** - Resumos executivos
-- **implementation-guide.md** - Guias de implementação
-- **technical-analysis.md** - Análises técnicas detalhadas
-- **README.md** - Índices e visões gerais
-
-### Categorias de Documentação
-- **flow-corrections/** - Correções de fluxo
-- **api-docs/** - Documentação de APIs
-- **deployment/** - Guias de deploy
-- **troubleshooting/** - Solução de problemas
-
----
-
-## 🎯 Próximas Documentações
-
-Futuras documentações devem seguir esta estrutura:
-
-1. Criar pasta específica em `.kiro/docs/[categoria]/`
-2. Incluir os 3 arquivos padrão quando aplicável:
-   - `executive-summary.md`
-   - `implementation-guide.md` 
-   - `technical-analysis.md`
-3. Atualizar este README.md com a nova categoria
-
----
-
-*Documentação organizada em: 2026-04-19*  
-*Estrutura: .kiro/docs/[categoria]/[tipo].md*
+Ações principais do AI Orchestrator:
+- `message_received` — 📨 mensagem recebida do cliente
+- `openai_request` — 🤖 enviando para AI
+- `openai_response` — 🤖 AI respondeu
+- `tool_execution_start` — 🔧 executando tool
+- `tool_execution_complete` — ✅ tool concluída
+- `message_sent` — 📤 resposta enviada ao cliente
