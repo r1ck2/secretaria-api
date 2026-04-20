@@ -5,8 +5,21 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'list_slots',
-      description: 'Lista horários disponíveis para agendamento. Chame quando o cliente quiser agendar ou pedir horários disponíveis. Retorna até 4 slots nos próximos 7 dias.',
-      parameters: { type: 'object', properties: {}, required: [] }
+      description: 'Lista horários disponíveis para agendamento. Chame quando o cliente quiser agendar ou pedir horários disponíveis. Se o cliente mencionar uma data específica (ex: "dia 30/04", "amanhã", "semana que vem"), passe target_date. Se mencionar horário específico (ex: "às 10h"), passe target_time.',
+      parameters: {
+        type: 'object',
+        properties: {
+          target_date: {
+            type: 'string',
+            description: 'Data desejada pelo cliente no formato YYYY-MM-DD (ex: "2025-04-30"). Use quando o cliente pedir uma data específica.'
+          },
+          target_time: {
+            type: 'string',
+            description: 'Horário desejado pelo cliente no formato HH:MM (ex: "10:00"). Use quando o cliente pedir um horário específico.'
+          }
+        },
+        required: []
+      }
     }
   },
   {

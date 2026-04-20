@@ -20,35 +20,71 @@ export class ListSlotsTool extends AbstractTool {
     });
 
     try {
-      // Get professional's calendar events for the next 7 days
-      const startDate = new Date();
-      const endDate = new Date();
-      endDate.setDate(startDate.getDate() + 7);
-
-      // Extract working hours/days from context if configured
       const ctx = context as any;
       const workingDays: string[] = ctx.working_days || ['seg', 'ter', 'qua', 'qui', 'sex'];
       const workingStart: string = ctx.working_hours_start || '09:00';
       const workingEnd: string = ctx.working_hours_end || '18:00';
       const useGoogleCalendar = ctx.use_google_calendar !== false;
 
+      // Determine search window
+      const { target_date, target_time } = args;
+      let startDate: Date;
+      let endDate: Date;
+      let maxSlots = 4;
+
+      if (target_date) {
+        // Client requested a specific date — search only that day (and next 2 days if needed)
+        startDate = new Date(`${target_date}T00:00:00`);
+        endDate = new Date(`${target_date}T23:59:59`);
+        // If specific time requested, try to find that slot first
+        if (target_time) {
+          maxSlots = 1; // Just check if that specific time is available
+        }
+        // If no slots found on target_date, expand to next 3 days
+        // (handled below by fallback)
+      } else {
+        startDate = new Date();
+        endDate = new Date();
+        endDate.setDate(startDate.getDate() + 7);
+      }
+
       let availableSlots: any[] = [];
 
       if (useGoogleCalendar && this.calendarService) {
-        // Call calendar service to get available slots
         availableSlots = await this.calendarService.listAvailableSlots({
           userId: context.user_id,
           startDate: startDate.toISOString(),
           endDate: endDate.toISOString(),
-          maxSlots: 4,
+          maxSlots,
           workingDays,
           workingHoursStart: workingStart,
           workingHoursEnd: workingEnd,
-          excludeEventIds: (context as any).cancelled_calendar_event_ids || [],
+          excludeEventIds: ctx.cancelled_calendar_event_ids || [],
+          targetTime: target_time,
         });
+
+        // If target_date was specified but no slots found, expand to next 7 days
+        if (target_date && availableSlots.length === 0) {
+          const fallbackEnd = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+          availableSlots = await this.calendarService.listAvailableSlots({
+            userId: context.user_id,
+            startDate: new Date().toISOString(),
+            endDate: fallbackEnd.toISOString(),
+            maxSlots: 4,
+            workingDays,
+            workingHoursStart: workingStart,
+            workingHoursEnd: workingEnd,
+            excludeEventIds: ctx.cancelled_calendar_event_ids || [],
+          });
+        }
       } else {
-        // Generate slots based on working hours without Google Calendar
-        availableSlots = this.generateLocalSlots(startDate, endDate, workingDays, workingStart, workingEnd);
+        availableSlots = this.generateLocalSlots(startDate, endDate, workingDays, workingStart, workingEnd, target_time);
+
+        // Fallback if no slots on target_date
+        if (target_date && availableSlots.length === 0) {
+          const fallbackEnd = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+          availableSlots = this.generateLocalSlots(new Date(), fallbackEnd, workingDays, workingStart, workingEnd);
+        }
       }
 
       // Format slots for AI consumption
@@ -104,15 +140,15 @@ export class ListSlotsTool extends AbstractTool {
   }
 
   /**
-   * Generates slots without Google Calendar — delegates to calendar adapter logic.
-   * Kept for fallback when calendarService is null.
+   * Generates slots without Google Calendar — timezone-aware (America/Sao_Paulo).
    */
   private generateLocalSlots(
     startDate: Date,
     endDate: Date,
     workingDays: string[],
     workingStart: string,
-    workingEnd: string
+    workingEnd: string,
+    targetTime?: string
   ): { start: string; end: string; duration_minutes: number }[] {
     const TZ = 'America/Sao_Paulo';
     const [startH, startM] = workingStart.split(':').map(Number);
@@ -158,7 +194,12 @@ export class ListSlotsTool extends AbstractTool {
 
       if (workingDays.includes(dayKey) && cursorMinutes + durationMinutes <= endMinutes) {
         const slotEnd = new Date(cursor.getTime() + durationMinutes * 60000);
-        slots.push({ start: cursor.toISOString(), end: slotEnd.toISOString(), duration_minutes: durationMinutes });
+
+        // If targetTime specified, only include slots matching that time
+        const matchesTarget = !targetTime || timeTZ.startsWith(targetTime.slice(0, 5));
+        if (matchesTarget) {
+          slots.push({ start: cursor.toISOString(), end: slotEnd.toISOString(), duration_minutes: durationMinutes });
+        }
         cursor = new Date(cursor.getTime() + durationMinutes * 60000);
       } else {
         const nextDayStr = new Date(cursor.getTime() + 24 * 60 * 60 * 1000)

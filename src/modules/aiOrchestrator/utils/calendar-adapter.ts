@@ -112,13 +112,15 @@ export class CalendarServiceAdapter {
     workingDays?: string[];
     workingHoursStart?: string;
     workingHoursEnd?: string;
-    excludeEventIds?: string[]; // calendar event IDs to exclude (e.g. just-cancelled)
+    excludeEventIds?: string[];
+    targetTime?: string; // HH:MM — only return slots at this time
   }): Promise<{ start: string; end: string; duration_minutes: number }[]> {
     const workingDays = params.workingDays || ['seg', 'ter', 'qua', 'qui', 'sex'];
     const [startH, startM] = (params.workingHoursStart || '09:00').split(':').map(Number);
     const [endH, endM] = (params.workingHoursEnd || '18:00').split(':').map(Number);
     const durationMinutes = 60;
     const excludeIds = new Set(params.excludeEventIds || []);
+    const targetTime = params.targetTime; // e.g. "10:00"
 
     // Fetch existing calendar events to avoid conflicts
     let busyTimes: { start: number; end: number }[] = [];
@@ -172,11 +174,18 @@ export class CalendarServiceAdapter {
         const hasConflict = busyTimes.some(b => slotStartMs < b.end && slotEndMs > b.start);
 
         if (!hasConflict) {
-          slots.push({
-            start: cursor.toISOString(),
-            end: slotEnd.toISOString(),
-            duration_minutes: durationMinutes,
+          // If targetTime specified, only include slots matching that time
+          const slotTimeTZ = cursor.toLocaleTimeString('en-US', {
+            timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false,
           });
+          const matchesTarget = !targetTime || slotTimeTZ.startsWith(targetTime.slice(0, 5));
+          if (matchesTarget) {
+            slots.push({
+              start: cursor.toISOString(),
+              end: slotEnd.toISOString(),
+              duration_minutes: durationMinutes,
+            });
+          }
         }
 
         cursor = new Date(cursor.getTime() + durationMinutes * 60000);
