@@ -1,4 +1,4 @@
-import { User, Session, Customer, Agent, Setting, GoogleCredential, WhatsappConnection, Flow, FlowSession, KanbanBoard, KanbanColumn, KanbanCard, Appointment, ProfessionalActiveFlow, FlowBlockedCustomer, AdminAgent } from "@/entities";
+import { User, Session, Customer, Agent, Setting, GoogleCredential, WhatsappConnection, Flow, FlowSession, KanbanBoard, KanbanColumn, KanbanCard, Appointment, ProfessionalActiveFlow, FlowBlockedCustomer, AdminAgent, ServicePrice } from "@/entities";
 import { Log } from "@/modules/log/log.entity";
 
 export const entitiesMap = [
@@ -11,4 +11,5 @@ export const entitiesMap = [
   FlowBlockedCustomer,
   AdminAgent,
   Log,
+  ServicePrice,
 ];

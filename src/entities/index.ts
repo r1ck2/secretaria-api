@@ -15,3 +15,4 @@ export { ProfessionalActiveFlow } from "@/modules/professionalFlow/professionalF
 export { FlowBlockedCustomer } from "@/modules/flowBlock/flowBlock.entity";
 export { AdminAgent } from "@/modules/adminAgent/adminAgent.entity";
 export { Log } from "@/modules/log/log.entity";
+export { ServicePrice } from "@/modules/servicePrice/servicePrice.entity";

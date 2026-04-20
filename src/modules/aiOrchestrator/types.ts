@@ -155,6 +155,7 @@ export type ToolName =
   | 'book_appointment'
   | 'cancel_appointment'
   | 'confirm_cancel'
+  | 'get_pricing'
   | 'create_todo'
   | 'register_customer';
 

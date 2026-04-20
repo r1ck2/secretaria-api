@@ -82,6 +82,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'get_pricing',
+      description: 'Retorna a tabela de preços e serviços do profissional. Chame quando o cliente perguntar sobre valores, preços, quanto custa, tabela de serviços ou o que está disponível.',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'register_customer',
       description: 'Cadastra um novo cliente. Chame quando o cliente não estiver cadastrado (is_returning_customer = Não) e você já tiver o nome confirmado.',
       parameters: {

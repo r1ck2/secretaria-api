@@ -5,6 +5,7 @@ import { BookAppointmentTool } from './book-appointment.tool';
 import { CancelAppointmentTool } from './cancel-appointment.tool';
 import { CreateTodoTool } from './create-todo.tool';
 import { RegisterCustomerTool } from './register-customer.tool';
+import { GetPricingTool } from './get-pricing.tool';
 
 export interface ToolExecutorDependencies {
   calendarService: any; // Will be properly typed when we integrate
@@ -20,22 +21,15 @@ export class ToolExecutor {
   private cancelAppointmentTool: CancelAppointmentTool;
   private createTodoTool: CreateTodoTool;
   private registerCustomerTool: RegisterCustomerTool;
+  private getPricingTool: GetPricingTool;
 
   constructor(private dependencies: ToolExecutorDependencies) {
-    // Initialize tool implementations
     this.listSlotsTool = new ListSlotsTool(dependencies.calendarService, dependencies.logService);
-    this.bookAppointmentTool = new BookAppointmentTool(
-      dependencies.calendarService,
-      dependencies.appointmentService,
-      dependencies.logService
-    );
-    this.cancelAppointmentTool = new CancelAppointmentTool(
-      dependencies.calendarService,
-      dependencies.appointmentService,
-      dependencies.logService
-    );
+    this.bookAppointmentTool = new BookAppointmentTool(dependencies.calendarService, dependencies.appointmentService, dependencies.logService);
+    this.cancelAppointmentTool = new CancelAppointmentTool(dependencies.calendarService, dependencies.appointmentService, dependencies.logService);
     this.createTodoTool = new CreateTodoTool(dependencies.kanbanService, dependencies.logService);
     this.registerCustomerTool = new RegisterCustomerTool(dependencies.customerService, dependencies.logService);
+    this.getPricingTool = new GetPricingTool(dependencies.logService);
   }
 
   /**
@@ -95,6 +89,9 @@ export class ToolExecutor {
         case 'confirm_cancel':
           result = await this.cancelAppointmentTool.cancelSpecificAppointment(args.appointment_id, context);
           break;
+        case 'get_pricing':
+          result = await this.getPricingTool.execute(args, context);
+          break;
         case 'create_todo':
           result = await this.createTodoTool.execute(args, context);
           break;
@@ -138,7 +135,7 @@ export class ToolExecutor {
   }
 
   private isValidToolName(toolName: string): toolName is ToolName {
-    const validNames: ToolName[] = ['list_slots', 'book_appointment', 'cancel_appointment', 'confirm_cancel', 'create_todo', 'register_customer'];
+    const validNames: ToolName[] = ['list_slots', 'book_appointment', 'cancel_appointment', 'confirm_cancel', 'get_pricing', 'create_todo', 'register_customer'];
     return validNames.includes(toolName as ToolName);
   }
 
