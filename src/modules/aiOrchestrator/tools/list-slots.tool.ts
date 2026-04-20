@@ -27,7 +27,9 @@ export class ListSlotsTool extends AbstractTool {
       const useGoogleCalendar = ctx.use_google_calendar !== false;
 
       // Determine search window
-      const { target_date, target_time } = args;
+      const { target_time } = args;
+      // Normalize target_date: accept DD/MM, DD/MM/YYYY, YYYY-MM-DD, or partial formats
+      const target_date = this.normalizeTargetDate(args.target_date);
       let startDate: Date;
       let endDate: Date;
       let maxSlots = 4;
@@ -121,6 +123,78 @@ export class ListSlotsTool extends AbstractTool {
 
       throw new Error(`Erro ao buscar horários disponíveis: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
     }
+  }
+
+  /**
+   * Normalizes any date format to YYYY-MM-DD using the current year.
+   * Accepts: "28/04", "28/04/2023", "2023-04-28", "28-04", etc.
+   * Always uses the current year if year is missing or wrong (past year).
+   * Returns null if input is falsy or unparseable.
+   */
+  private normalizeTargetDate(raw: string | undefined | null): string | null {
+    if (!raw) return null;
+
+    const TZ = 'America/Sao_Paulo';
+    const nowBR = new Date().toLocaleDateString('en-CA', { timeZone: TZ }); // YYYY-MM-DD
+    const currentYear = parseInt(nowBR.split('-')[0], 10);
+    const todayMs = new Date(`${nowBR}T00:00:00-03:00`).getTime();
+
+    let day: number | null = null;
+    let month: number | null = null;
+    let year: number = currentYear;
+
+    // Try DD/MM/YYYY or DD/MM
+    const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+    if (slashMatch) {
+      day = parseInt(slashMatch[1], 10);
+      month = parseInt(slashMatch[2], 10);
+      if (slashMatch[3]) {
+        const y = parseInt(slashMatch[3], 10);
+        year = y < 100 ? 2000 + y : y;
+      }
+    }
+
+    // Try YYYY-MM-DD
+    if (!day) {
+      const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (isoMatch) {
+        year = parseInt(isoMatch[1], 10);
+        month = parseInt(isoMatch[2], 10);
+        day = parseInt(isoMatch[3], 10);
+      }
+    }
+
+    // Try DD-MM or DD-MM-YYYY
+    if (!day) {
+      const dashMatch = raw.match(/^(\d{1,2})-(\d{1,2})(?:-(\d{2,4}))?$/);
+      if (dashMatch) {
+        day = parseInt(dashMatch[1], 10);
+        month = parseInt(dashMatch[2], 10);
+        if (dashMatch[3]) {
+          const y = parseInt(dashMatch[3], 10);
+          year = y < 100 ? 2000 + y : y;
+        }
+      }
+    }
+
+    if (!day || !month || day < 1 || day > 31 || month < 1 || month > 12) return null;
+
+    // Always use current year if year provided is in the past
+    const pad = (n: number) => String(n).padStart(2, '0');
+    let candidate = `${year}-${pad(month)}-${pad(day)}`;
+    let candidateMs = new Date(`${candidate}T00:00:00-03:00`).getTime();
+
+    // If the date is in the past, try next year
+    if (candidateMs < todayMs) {
+      year = currentYear + 1;
+      candidate = `${year}-${pad(month)}-${pad(day)}`;
+      candidateMs = new Date(`${candidate}T00:00:00-03:00`).getTime();
+    }
+
+    // Final check: must be >= today
+    if (candidateMs < todayMs) return null;
+
+    return candidate;
   }
 
   private formatSlotLabel(isoDateTime: string): string {
