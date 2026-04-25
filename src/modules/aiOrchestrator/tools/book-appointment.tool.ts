@@ -1,6 +1,7 @@
 import { AbstractTool } from './base-tool';
 import { SessionContext, Slot } from '../types';
 import { LogAction } from '../types';
+import { enqueueAppointmentReminder } from '@/modules/queueJob/helpers/enqueueAppointmentReminder';
 
 export class BookAppointmentTool extends AbstractTool {
   constructor(
@@ -112,6 +113,16 @@ export class BookAppointmentTool extends AbstractTool {
       (context as any).chosen_slot = chosenSlot;
       (context as any).pending_slot_confirmation = null;
       (context as any).last_booked_appointment = `${chosenSlot.label} — ${appointmentTitle}`;
+
+      // Enqueue reminder job (non-fatal)
+      await enqueueAppointmentReminder({
+        appointment_id: appointment.id,
+        user_id: context.user_id,
+        customer_phone: context.phone,
+        customer_name: context.name || context.phone,
+        appointment_title: appointmentTitle,
+        start_at: chosenSlot.start,
+      });
 
       return {
         appointment,

@@ -16,6 +16,8 @@ import logRoutes from "./v1/log.routes";
 import aiOrchestratorRoutes from "./v1/aiOrchestrator.routes";
 import appointmentRoutes from "./v1/appointment.routes";
 import servicePriceRoutes from "./v1/servicePrice.routes";
+import cronConfigRoutes from "./v1/cronConfig.routes";
+import queueJobRoutes from "./v1/queueJob.routes";
 
 const routes = express.Router();
 
@@ -45,6 +47,8 @@ routes.use("/api/v1", logRoutes);
 routes.use("/api/v1", aiOrchestratorRoutes);
 routes.use("/api/v1", appointmentRoutes);
 routes.use("/api/v1", servicePriceRoutes);
+routes.use("/api/v1", cronConfigRoutes);
+routes.use("/api/v1", queueJobRoutes);
 
 routes.use(notFoundHandler);
 

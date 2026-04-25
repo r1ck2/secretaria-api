@@ -6,6 +6,7 @@ import http from "http";
 import { DatabaseConnection } from "./config/dbConnection";
 import { env } from "./config/environment.config";
 import rateLimit from "express-rate-limit";
+import setupCronJobs from "./modules/cronConfig/jobs";
 
 const app: Application = express();
 
@@ -28,6 +29,7 @@ app.use(routes);
 
 const start = async () => {
   new DatabaseConnection();
+  await setupCronJobs();
   http.createServer(app).listen(env.PORT, () => {
     console.log(`AllcanceAgents API running on port ${env.PORT} 🚀`);
   });

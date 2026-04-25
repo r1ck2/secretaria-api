@@ -7,6 +7,7 @@ import { WhatsappConnection } from "@/modules/whatsapp/whatsapp.entity";
 import { evolutionApiService } from "@/modules/evolution/evolution.service";
 import { logService } from "@/modules/log/log.service";
 import { normalizePhoneNumber } from "@/utils/phoneNormalizer";
+import { isProfessionalOwnNumber, handleProfessionalMessage } from "@/modules/professionalFlow/professionalAssistant.service";
 
 const engineService = new FlowEngineService();
 
@@ -307,6 +308,34 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
 
     const toNumber = conn.phone_number || undefined;
     const flowUserId = conn.user_id;
+
+    // ── Professional own-number check ─────────────────────────────────────────
+    // If the sender is the professional themselves (secretary_phone setting),
+    // route to the professional assistant flow — never touch the customer flow.
+    const isOwnNumber = await isProfessionalOwnNumber(fromNumber, flowUserId);
+    if (isOwnNumber) {
+      await logService.logEvolution({
+        action: "professional_assistant_triggered",
+        message: `📱 Mensagem do próprio profissional (${fromNumber}) — roteando para assistente`,
+        phone_number: fromNumber,
+        user_id: flowUserId,
+        metadata: { instanceName, messagePreview: messageText.slice(0, 100) },
+      });
+
+      const assistantResult = await handleProfessionalMessage(messageText, flowUserId);
+
+      if (conn.evolution_instance_name && conn.evolution_instance_apikey) {
+        await evolutionApiService.sendTextMessage(
+          conn.evolution_instance_name,
+          conn.evolution_instance_apikey,
+          fromNumber,
+          assistantResult.message
+        );
+      }
+
+      return res.status(200).json({ success: true, professional_flow: true });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     const results = await engineService.receiveMessage(fromNumber, messageText, undefined, toNumber, flowUserId, senderName || undefined);
 

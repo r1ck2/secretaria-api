@@ -15,6 +15,7 @@ import { KanbanColumn } from "@/modules/kanban/kanban-column.entity";
 import { KanbanCard } from "@/modules/kanban/kanban-card.entity";
 import { logService } from "@/modules/log/log.service";
 import { normalizePhoneNumber, getPhoneNumberVariations } from "@/utils/phoneNormalizer";
+import { enqueueAppointmentReminder } from "@/modules/queueJob/helpers/enqueueAppointmentReminder";
 import OpenAI from "openai";
 import { Op } from "sequelize";
 import { v4 as uuidv4 } from "uuid";
@@ -1110,7 +1111,7 @@ export class FlowEngineService {
 
       // Persist appointment to mv_appointments for future cancellation
       const customer = await Customer.findOne({ where: { phone: ctx.phone } });
-      await Appointment.create({
+      const newAppointment = await Appointment.create({
         id: uuidv4(),
         user_id: userId,
         customer_id: customer?.id || null,
@@ -1121,6 +1122,16 @@ export class FlowEngineService {
         end_at: new Date(chosenSlot.end),
         status: "confirmed",
       } as any);
+
+      // Enqueue reminder job (non-fatal if it fails)
+      await enqueueAppointmentReminder({
+        appointment_id: (newAppointment as any).id,
+        user_id: userId,
+        customer_phone: (ctx.phone || "").replace(/\D/g, ""),
+        customer_name: ctx.name || ctx.phone,
+        appointment_title: eventTitle,
+        start_at: new Date(chosenSlot.start),
+      });
 
       const appointment = {
         event_id: event.id,

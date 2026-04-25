@@ -16,3 +16,5 @@ export { FlowBlockedCustomer } from "@/modules/flowBlock/flowBlock.entity";
 export { AdminAgent } from "@/modules/adminAgent/adminAgent.entity";
 export { Log } from "@/modules/log/log.entity";
 export { ServicePrice } from "@/modules/servicePrice/servicePrice.entity";
+export { CronConfig } from "@/modules/cronConfig/cronConfig.entity";
+export { QueueJob } from "@/modules/queueJob/queueJob.entity";
