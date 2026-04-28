@@ -28,11 +28,12 @@ export class ListSlotsTool extends AbstractTool {
 
       // Determine search window
       const { target_time } = args;
+      const show_all: boolean = args.show_all === true;
       // Normalize target_date: accept DD/MM, DD/MM/YYYY, YYYY-MM-DD, or partial formats
       const target_date = this.normalizeTargetDate(args.target_date);
       let startDate: Date;
       let endDate: Date;
-      let maxSlots = 4;
+      let maxSlots = show_all ? 20 : 4;
 
       if (target_date) {
         // Parse target_date as Brazil timezone midnight to avoid UTC day-shift bug
@@ -42,9 +43,12 @@ export class ListSlotsTool extends AbstractTool {
         if (target_time) {
           maxSlots = 1;
         }
+        // show_all with a specific date: search the full day with maxSlots = 20
+        // (maxSlots already set to 20 above when show_all is true)
       } else {
         startDate = new Date();
         endDate = new Date();
+        // show_all without a date: expand window to 7 days (same as default, maxSlots already 20)
         endDate.setDate(startDate.getDate() + 7);
       }
 
@@ -70,7 +74,7 @@ export class ListSlotsTool extends AbstractTool {
             userId: context.user_id,
             startDate: new Date().toISOString(),
             endDate: fallbackEnd.toISOString(),
-            maxSlots: 4,
+            maxSlots,
             workingDays,
             workingHoursStart: workingStart,
             workingHoursEnd: workingEnd,
@@ -78,12 +82,12 @@ export class ListSlotsTool extends AbstractTool {
           });
         }
       } else {
-        availableSlots = this.generateLocalSlots(startDate, endDate, workingDays, workingStart, workingEnd, target_time);
+        availableSlots = this.generateLocalSlots(startDate, endDate, workingDays, workingStart, workingEnd, target_time, maxSlots);
 
         // Fallback if no slots on target_date
         if (target_date && availableSlots.length === 0) {
           const fallbackEnd = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
-          availableSlots = this.generateLocalSlots(new Date(), fallbackEnd, workingDays, workingStart, workingEnd);
+          availableSlots = this.generateLocalSlots(new Date(), fallbackEnd, workingDays, workingStart, workingEnd, undefined, maxSlots);
         }
       }
 
@@ -220,7 +224,8 @@ export class ListSlotsTool extends AbstractTool {
     workingDays: string[],
     workingStart: string,
     workingEnd: string,
-    targetTime?: string
+    targetTime?: string,
+    maxSlots: number = 4
   ): { start: string; end: string; duration_minutes: number }[] {
     const TZ = 'America/Sao_Paulo';
     const [startH, startM] = workingStart.split(':').map(Number);
@@ -257,7 +262,7 @@ export class ListSlotsTool extends AbstractTool {
     }
 
     let iterations = 0;
-    while (cursor < endDate && slots.length < 4 && iterations < 200) {
+    while (cursor < endDate && slots.length < maxSlots && iterations < 200) {
       iterations++;
       const dayKey = dayNames[cursor.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long' })] || 'seg';
       const timeTZ = cursor.toLocaleTimeString('en-US', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false });

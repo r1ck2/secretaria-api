@@ -77,6 +77,7 @@ export interface AIOrchestrator {
     toNumber: string;
     professionalUserId: string;
     senderName?: string;
+    isProfessional?: boolean;
   }): Promise<unknown>;
 }
 

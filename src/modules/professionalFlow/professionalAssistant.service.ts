@@ -243,15 +243,17 @@ export class ProfessionalAssistantService {
   /**
    * Returns true when the Evolution API payload contains an audio message
    * (audioMessage, pttMessage, or documentMessage with a supported audio MIME type).
+   * audioMessage and pttMessage are always treated as audio regardless of MIME type.
+   * Only documentMessage requires MIME type checking.
    */
   isAudioMessage(payload: EvolutionWebhookPayload): boolean {
     const msg = payload.data?.message;
     if (!msg) return false;
 
-    if (msg.audioMessage) return true;
-    if (msg.pttMessage) return true;
+    if (msg.audioMessage) return true;  // always audio
+    if (msg.pttMessage) return true;    // always audio (PTT = push-to-talk)
     if (msg.documentMessage) {
-      const mime = msg.documentMessage.mimetype || "";
+      const mime = (msg.documentMessage.mimetype || '').split(';')[0].trim();
       return (SUPPORTED_AUDIO_MIME_TYPES as readonly string[]).includes(mime);
     }
     return false;
@@ -271,11 +273,12 @@ export class ProfessionalAssistantService {
       const audio = msg.audioMessage;
       const value = audio.mediaUrl || audio.url || audio.base64 || null;
       if (!value) return null;
-      const type = audio.base64 && !audio.mediaUrl && !audio.url ? "base64" : "url";
+      const rawMime = (audio.mimetype || '').split(';')[0].trim();
+      const mimeType = rawMime || 'audio/ogg';
       return {
         type: audio.mediaUrl || audio.url ? "url" : "base64",
         value: audio.mediaUrl || audio.url || audio.base64!,
-        mimeType: audio.mimetype || "audio/ogg",
+        mimeType,
         filename: "audio.ogg",
       };
     }
@@ -285,10 +288,12 @@ export class ProfessionalAssistantService {
       const ptt = msg.pttMessage;
       const value = ptt.mediaUrl || ptt.url || ptt.base64 || null;
       if (!value) return null;
+      const rawMime = (ptt.mimetype || '').split(';')[0].trim();
+      const mimeType = rawMime || 'audio/ogg';
       return {
         type: ptt.mediaUrl || ptt.url ? "url" : "base64",
         value: ptt.mediaUrl || ptt.url || ptt.base64!,
-        mimeType: ptt.mimetype || "audio/ogg",
+        mimeType,
         filename: "ptt.ogg",
       };
     }
@@ -296,7 +301,7 @@ export class ProfessionalAssistantService {
     // documentMessage (only if audio MIME type)
     if (msg.documentMessage) {
       const doc = msg.documentMessage;
-      const mime = doc.mimetype || "";
+      const mime = (doc.mimetype || '').split(';')[0].trim();
       if (!(SUPPORTED_AUDIO_MIME_TYPES as readonly string[]).includes(mime)) return null;
       const value = doc.mediaUrl || doc.url || doc.base64 || null;
       if (!value) return null;
@@ -347,6 +352,9 @@ export class ProfessionalAssistantService {
   ): Promise<string> {
     const openai = new OpenAI({ apiKey });
 
+    // Normalize MIME type by stripping codec suffix (e.g. "audio/ogg; codecs=opus" → "audio/ogg")
+    const normalizedMime = mimeType.split(';')[0].trim() || 'audio/ogg';
+
     // Derive filename from MIME type
     const mimeToExt: Record<string, string> = {
       "audio/ogg": "audio.ogg",
@@ -355,9 +363,9 @@ export class ProfessionalAssistantService {
       "audio/webm": "audio.webm",
       "audio/wav": "audio.wav",
     };
-    const filename = mimeToExt[mimeType] || "audio.ogg";
+    const filename = mimeToExt[normalizedMime] || "audio.ogg";
 
-    const file = new File([buffer], filename, { type: mimeType });
+    const file = new File([buffer], filename, { type: normalizedMime });
 
     const transcription = await openai.audio.transcriptions.create({
       model: "whisper-1",
@@ -410,8 +418,9 @@ export class ProfessionalAssistantService {
         return;
       }
 
-      // Check MIME type is supported
-      if (!(SUPPORTED_AUDIO_MIME_TYPES as readonly string[]).includes(audioContent.mimeType)) {
+      // Check MIME type is supported (normalize first to strip codec suffix)
+      const normalizedMime = audioContent.mimeType.split(';')[0].trim();
+      if (!(SUPPORTED_AUDIO_MIME_TYPES as readonly string[]).includes(normalizedMime as any)) {
         await sendError(
           "Formato de áudio não suportado. Envie áudios em formato OGG, MP3, MP4, WebM ou WAV."
         );
@@ -433,7 +442,7 @@ export class ProfessionalAssistantService {
       // Transcribe
       let transcription: string;
       try {
-        transcription = await this.transcribeAudio(audioBuffer, audioContent.mimeType, apiKey);
+        transcription = await this.transcribeAudio(audioBuffer, normalizedMime, apiKey);
       } catch (err) {
         this.logError("whisper_failed", err as Error, params);
         await sendError(
@@ -470,6 +479,7 @@ export class ProfessionalAssistantService {
         message: messageText,
         toNumber: params.fromNumber,
         professionalUserId: params.professionalUserId,
+        isProfessional: true,
       });
     } catch (err) {
       this.logError("orchestrator_failed", err as Error, params);

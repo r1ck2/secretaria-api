@@ -5,7 +5,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'list_slots',
-      description: 'Lista horários disponíveis para agendamento. Chame quando o cliente quiser agendar ou pedir horários disponíveis. Se o cliente mencionar uma data específica, passe target_date EXATAMENTE como o cliente escreveu (ex: "28/04", "28/04/2026", "2026-04-28"). O sistema fará a conversão correta. Se mencionar horário específico (ex: "às 10h", "10:00"), passe target_time no formato HH:MM.',
+      description: 'Lista horários disponíveis para agendamento. Chame quando o cliente quiser agendar ou pedir horários disponíveis. Se o cliente mencionar uma data específica, passe target_date EXATAMENTE como o cliente escreveu (ex: "28/04", "28/04/2026", "2026-04-28"). O sistema fará a conversão correta. Se mencionar horário específico (ex: "às 10h", "10:00"), passe target_time no formato HH:MM. Se o cliente pedir mais opções ou todos os horários disponíveis, passe show_all: true.',
       parameters: {
         type: 'object',
         properties: {
@@ -16,6 +16,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           target_time: {
             type: 'string',
             description: 'Horário desejado pelo cliente no formato HH:MM (ex: "10:00", "09:30").'
+          },
+          show_all: {
+            type: 'boolean',
+            description: 'Passe true quando o cliente pedir "mais horários", "outros horários", "todos os horários", "tem mais?", "tem outros?" ou expressões similares indicando que quer ver mais opções além das já apresentadas.'
           }
         },
         required: []

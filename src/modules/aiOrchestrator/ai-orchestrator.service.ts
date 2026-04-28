@@ -27,6 +27,7 @@ export interface ReceiveMessageParams {
   toNumber: string;
   professionalUserId: string;
   senderName?: string; // Name from WhatsApp API if available
+  isProfessional?: boolean; // When true, skip isCustomerBlocked check (professional's own number)
 }
 
 export interface AIOrchestratordDependencies {
@@ -44,7 +45,7 @@ export class AIOrchestrator {
    * Main entry point — receives a WhatsApp message and orchestrates the AI response.
    */
   async receiveMessage(params: ReceiveMessageParams): Promise<OrchestratorResult> {
-    const { phoneNumber, message, flowId, toNumber, professionalUserId, senderName } = params;
+    const { phoneNumber, message, flowId, toNumber, professionalUserId, senderName, isProfessional } = params;
     const normalizedPhone = normalizePhone(phoneNumber);
 
     // ── LOG: Mensagem recebida ──────────────────────────────────────────────
@@ -54,19 +55,21 @@ export class AIOrchestrator {
       message_preview: message.slice(0, 200),
     });
 
-    // 1. Check if customer is blocked
-    const isBlocked = await this.isCustomerBlocked(normalizedPhone, professionalUserId);
-    if (isBlocked) {
-      this.log(LogAction.CUSTOMER_BLOCKED, 'Customer is blocked, skipping', {
-        phone_number: normalizedPhone,
-        user_id: professionalUserId,
-      });
-      return {
-        session_id: '',
-        messages_sent: [],
-        tools_executed: [],
-        status: 'completed',
-      };
+    // 1. Check if customer is blocked (skip for professional's own number)
+    if (!isProfessional) {
+      const isBlocked = await this.isCustomerBlocked(normalizedPhone, professionalUserId);
+      if (isBlocked) {
+        this.log(LogAction.CUSTOMER_BLOCKED, 'Customer is blocked, skipping', {
+          phone_number: normalizedPhone,
+          user_id: professionalUserId,
+        });
+        return {
+          session_id: '',
+          messages_sent: [],
+          tools_executed: [],
+          status: 'completed',
+        };
+      }
     }
 
     // 2. Find or create session
@@ -438,6 +441,7 @@ Você é um assistente de atendimento. Siga este protocolo rigorosamente em TODA
   3️⃣ Terça, 21/04 às 14:00
   4️⃣ Quarta, 22/04 às 09:00
   Qual horário prefere? Responda com o número. 😊"
+- Se o cliente responder 'tem outros?', 'mais opções', 'todos', 'outros horários' ou similar → chame list_slots novamente com show_all: true e apresente todos os horários disponíveis da semana.
 
 **ESTÁGIO: CONFIRMAÇÃO E AGENDAMENTO** (cliente escolheu um número)
 - Quando cliente responder com número (1, 2, 3, 4) e há slots disponíveis no contexto:
