@@ -28,6 +28,9 @@ export interface ReceiveMessageParams {
   professionalUserId: string;
   senderName?: string; // Name from WhatsApp API if available
   isProfessional?: boolean; // When true, skip isCustomerBlocked check (professional's own number)
+  // Optional: provide instance credentials directly to bypass WhatsApp connection DB lookup
+  evolutionInstanceName?: string;
+  evolutionInstanceApikey?: string;
 }
 
 export interface AIOrchestratordDependencies {
@@ -45,7 +48,7 @@ export class AIOrchestrator {
    * Main entry point — receives a WhatsApp message and orchestrates the AI response.
    */
   async receiveMessage(params: ReceiveMessageParams): Promise<OrchestratorResult> {
-    const { phoneNumber, message, flowId, toNumber, professionalUserId, senderName, isProfessional } = params;
+    const { phoneNumber, message, flowId, toNumber, professionalUserId, senderName, isProfessional, evolutionInstanceName, evolutionInstanceApikey } = params;
     const normalizedPhone = normalizePhone(phoneNumber);
 
     // ── LOG: Mensagem recebida ──────────────────────────────────────────────
@@ -109,7 +112,7 @@ export class AIOrchestrator {
         user_id: professionalUserId,
       });
       const noAgentMsg = 'Olá! Estou temporariamente indisponível. Por favor, tente novamente em instantes.';
-      await this.sendWhatsApp(professionalUserId, normalizedPhone, noAgentMsg);
+      await this.sendWhatsApp(professionalUserId, normalizedPhone, noAgentMsg, evolutionInstanceName, evolutionInstanceApikey);
       return {
         session_id: freshSession.id,
         messages_sent: [noAgentMsg],
@@ -254,7 +257,7 @@ export class AIOrchestrator {
     } catch (err) {
       this.logError(LogAction.OPENAI_ERROR, err as Error, { session_id: freshSession.id });
       const fallbackMsg = 'Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em instantes.';
-      await this.sendWhatsApp(professionalUserId, normalizedPhone, fallbackMsg);
+      await this.sendWhatsApp(professionalUserId, normalizedPhone, fallbackMsg, evolutionInstanceName, evolutionInstanceApikey);
       return {
         session_id: freshSession.id,
         messages_sent: [fallbackMsg],
@@ -266,7 +269,7 @@ export class AIOrchestrator {
     // 10. Send final response via WhatsApp
     const messagesSent: string[] = [];
     if (finalText) {
-      await this.sendWhatsApp(professionalUserId, normalizedPhone, finalText);
+      await this.sendWhatsApp(professionalUserId, normalizedPhone, finalText, evolutionInstanceName, evolutionInstanceApikey);
       messagesSent.push(finalText);
 
       this.log(LogAction.MESSAGE_SENT, `📤 Resposta enviada ao cliente ${normalizedPhone}: "${finalText.slice(0, 100)}${finalText.length > 100 ? '...' : ''}"`, {
@@ -289,7 +292,7 @@ export class AIOrchestrator {
         user_id: professionalUserId,
       });
       const retryMsg = 'Desculpe, não consegui processar sua mensagem. Poderia reformular de outra forma?';
-      await this.sendWhatsApp(professionalUserId, normalizedPhone, retryMsg);
+      await this.sendWhatsApp(professionalUserId, normalizedPhone, retryMsg, evolutionInstanceName, evolutionInstanceApikey);
       messagesSent.push(retryMsg);
       await this.deps.sessionManager.pushMessage(freshSession.id, {
         role: 'assistant',
@@ -488,19 +491,34 @@ ${contextString}`;
     } catch { /* non-blocking */ }
   }
 
-  private async sendWhatsApp(userId: string, toPhone: string, text: string): Promise<void> {
+  private async sendWhatsApp(
+    userId: string,
+    toPhone: string,
+    text: string,
+    instanceName?: string,
+    instanceApikey?: string,
+  ): Promise<void> {
     try {
-      const conn = await WhatsappConnection.findOne({
-        where: { user_id: userId, status: 'connected' },
-      });
+      let instName = instanceName;
+      let instKey = instanceApikey;
 
-      if (!conn?.evolution_instance_name || !conn?.evolution_instance_apikey) {
-        throw new Error(`No connected WhatsApp instance for user ${userId}`);
+      // If instance credentials not provided directly, look them up from DB
+      if (!instName || !instKey) {
+        const conn = await WhatsappConnection.findOne({
+          where: { user_id: userId, status: 'connected' },
+        });
+
+        if (!conn?.evolution_instance_name || !conn?.evolution_instance_apikey) {
+          throw new Error(`No connected WhatsApp instance for user ${userId}`);
+        }
+
+        instName = conn.evolution_instance_name;
+        instKey = conn.evolution_instance_apikey;
       }
 
       await this.deps.evolutionApiService.sendTextMessage(
-        conn.evolution_instance_name,
-        conn.evolution_instance_apikey,
+        instName,
+        instKey,
         toPhone,
         text
       );

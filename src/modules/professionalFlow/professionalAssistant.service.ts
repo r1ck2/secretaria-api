@@ -342,7 +342,64 @@ export class ProfessionalAssistantService {
   // ── Task 5: Transcribe audio via Whisper ────────────────────────────────────
 
   /**
+   * Converts an audio buffer to MP3 using ffmpeg (spawned as a child process).
+   * WhatsApp sends OGG/Opus which Whisper rejects — MP3 is universally accepted.
+   * Falls back to the original buffer if ffmpeg is unavailable.
+   */
+  private async convertToMp3(buffer: Buffer, inputMime: string): Promise<{ buffer: Buffer; mimeType: string }> {
+    const { spawn } = await import("child_process");
+
+    return new Promise((resolve) => {
+      // Determine input format hint for ffmpeg
+      const mimeToFormat: Record<string, string> = {
+        "audio/ogg": "ogg",
+        "audio/mpeg": "mp3",
+        "audio/mp4": "mp4",
+        "audio/webm": "webm",
+        "audio/wav": "wav",
+      };
+      const inputFormat = mimeToFormat[inputMime] || "ogg";
+
+      const chunks: Buffer[] = [];
+      const errChunks: Buffer[] = [];
+
+      // ffmpeg: read from stdin, output mp3 to stdout
+      const ff = spawn("ffmpeg", [
+        "-f", inputFormat,
+        "-i", "pipe:0",
+        "-vn",
+        "-ar", "16000",
+        "-ac", "1",
+        "-b:a", "64k",
+        "-f", "mp3",
+        "pipe:1",
+      ]);
+
+      ff.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+      ff.stderr.on("data", (chunk: Buffer) => errChunks.push(chunk));
+
+      ff.on("close", (code) => {
+        if (code === 0 && chunks.length > 0) {
+          resolve({ buffer: Buffer.concat(chunks), mimeType: "audio/mpeg" });
+        } else {
+          // ffmpeg failed or not available — return original buffer unchanged
+          resolve({ buffer, mimeType: inputMime });
+        }
+      });
+
+      ff.on("error", () => {
+        // ffmpeg not installed — return original buffer unchanged
+        resolve({ buffer, mimeType: inputMime });
+      });
+
+      ff.stdin.write(buffer);
+      ff.stdin.end();
+    });
+  }
+
+  /**
    * Sends audio buffer to OpenAI Whisper for transcription.
+   * Converts to MP3 first (via ffmpeg) to ensure format compatibility.
    * Uses model 'whisper-1' and language 'pt' for Brazilian Portuguese.
    */
   async transcribeAudio(
@@ -355,7 +412,11 @@ export class ProfessionalAssistantService {
     // Normalize MIME type by stripping codec suffix (e.g. "audio/ogg; codecs=opus" → "audio/ogg")
     const normalizedMime = mimeType.split(';')[0].trim() || 'audio/ogg';
 
-    // Derive filename from MIME type
+    // Convert to MP3 for maximum Whisper compatibility
+    // WhatsApp OGG/Opus is technically supported but often rejected due to container issues
+    const { buffer: convertedBuffer, mimeType: convertedMime } = await this.convertToMp3(buffer, normalizedMime);
+
+    // Derive filename from final MIME type
     const mimeToExt: Record<string, string> = {
       "audio/ogg": "audio.ogg",
       "audio/mpeg": "audio.mp3",
@@ -363,9 +424,9 @@ export class ProfessionalAssistantService {
       "audio/webm": "audio.webm",
       "audio/wav": "audio.wav",
     };
-    const filename = mimeToExt[normalizedMime] || "audio.ogg";
+    const filename = mimeToExt[convertedMime] || "audio.mp3";
 
-    const file = new File([buffer], filename, { type: normalizedMime });
+    const file = new File([convertedBuffer], filename, { type: convertedMime });
 
     const transcription = await openai.audio.transcriptions.create({
       model: "whisper-1",
@@ -439,7 +500,7 @@ export class ProfessionalAssistantService {
         return;
       }
 
-      // Transcribe
+      // Transcribe (with automatic MP3 conversion via ffmpeg)
       let transcription: string;
       try {
         transcription = await this.transcribeAudio(audioBuffer, normalizedMime, apiKey);
@@ -468,11 +529,12 @@ export class ProfessionalAssistantService {
         "";
     }
 
-    // 5. Call AIOrchestrator
-    // Task 7: Session isolation is achieved naturally because the professional's
-    // own phone number is used as the session key, which is different from any
-    // customer phone number. The AIOrchestrator.receiveMessage creates/reuses
-    // the session scoped to this phone + professionalUserId combination.
+    // 3. Call AIOrchestrator and capture the response text directly
+    // We pass isProfessional: true to skip the isCustomerBlocked check.
+    // After the orchestrator runs, we send the response directly using the
+    // instance credentials we already have — this avoids a second DB lookup
+    // for the WhatsApp connection and ensures delivery even if the connection
+    // status field is stale.
     try {
       await this.deps.aiOrchestrator.receiveMessage({
         phoneNumber: params.fromNumber,
@@ -480,6 +542,8 @@ export class ProfessionalAssistantService {
         toNumber: params.fromNumber,
         professionalUserId: params.professionalUserId,
         isProfessional: true,
+        evolutionInstanceName: params.instanceName,
+        evolutionInstanceApikey: params.instanceApikey,
       });
     } catch (err) {
       this.logError("orchestrator_failed", err as Error, params);

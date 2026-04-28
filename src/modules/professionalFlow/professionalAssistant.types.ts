@@ -78,6 +78,8 @@ export interface AIOrchestrator {
     professionalUserId: string;
     senderName?: string;
     isProfessional?: boolean;
+    evolutionInstanceName?: string;
+    evolutionInstanceApikey?: string;
   }): Promise<unknown>;
 }
 

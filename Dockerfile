@@ -1,6 +1,6 @@
 FROM node:22.19.0-alpine3.22
 
-RUN apk add --no-cache bash
+RUN apk add --no-cache bash ffmpeg
 
 WORKDIR /usr/src/app
 
