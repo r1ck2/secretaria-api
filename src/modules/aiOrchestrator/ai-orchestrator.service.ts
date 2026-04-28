@@ -80,6 +80,7 @@ export class AIOrchestrator {
       phoneNumber: normalizedPhone,
       flowId,
       professionalUserId,
+      isProfessional,
     });
 
     // 3. Push incoming user message to history
@@ -127,7 +128,7 @@ export class AIOrchestrator {
     // 7. Read history from fresh session — includes the message just pushed
     const history = freshSession.getHistory() as HistoryEntry[];
     const contextString = serializeForOpenAI(context, history);
-    const systemPrompt = this.buildSystemPrompt(agent.system_prompt, contextString);
+    const systemPrompt = this.buildSystemPrompt(agent.system_prompt, contextString, !!(context as any).is_professional);
 
     // 8. Build input messages from history (user + assistant only, no tool entries)
     const inputMessages = history
@@ -227,7 +228,7 @@ export class AIOrchestrator {
         // Second call — rebuild context with updated slots/appointments
         const updatedHistory = freshSession.getHistory() as HistoryEntry[];
         const updatedContextString = serializeForOpenAI(context, updatedHistory);
-        const updatedSystemPrompt = this.buildSystemPrompt(agent.system_prompt, updatedContextString);
+        const updatedSystemPrompt = this.buildSystemPrompt(agent.system_prompt, updatedContextString, !!(context as any).is_professional);
         const updatedParams = { ...openAIParams, instructions: updatedSystemPrompt };
 
         const assistantMsg = {
@@ -397,7 +398,36 @@ export class AIOrchestrator {
     }
   }
 
-  private buildSystemPrompt(agentPrompt: string, contextString: string): string {
+  private buildSystemPrompt(agentPrompt: string, contextString: string, isProfessional = false): string {
+    if (isProfessional) {
+      return `${agentPrompt ? agentPrompt + '\n\n---\n\n' : ''}## ASSISTENTE PESSOAL DO PROFISSIONAL
+
+Você é o assistente pessoal do profissional que gerencia esta conta. O profissional está conversando com você diretamente pelo próprio WhatsApp.
+
+### REGRAS ABSOLUTAS
+1. SEMPRE responda em português brasileiro
+2. SEMPRE responda diretamente à pergunta ou pedido — nunca peça confirmação de nome ou cadastro
+3. NUNCA trate o profissional como cliente — ele é o dono da conta
+4. SEMPRE forneça uma resposta completa e útil a cada mensagem
+5. Se a mensagem começar com "[Áudio transcrito]", processe o conteúdo após esse prefixo como a mensagem real
+6. Quando executar uma tool, use o resultado para formular a resposta COMPLETA na mesma mensagem
+
+### O QUE VOCÊ PODE FAZER
+- Informar os agendamentos do dia, semana ou período solicitado
+- Listar horários disponíveis para novos agendamentos
+- Responder perguntas sobre clientes, agenda e negócio
+- Ajudar com tarefas administrativas
+
+### AGENDAMENTOS
+- Se o profissional perguntar sobre agendamentos ("minha agenda", "agendamentos de hoje", "próximas consultas", etc.):
+  - Verifique o contexto [CONSULTAS AGENDADAS DO CLIENTE] — esses são os agendamentos do profissional
+  - Se houver agendamentos, liste-os de forma clara e organizada
+  - Se não houver agendamentos no período, informe claramente
+
+### CONTEXTO ATUAL
+${contextString}`;
+    }
+
     return `${agentPrompt ? agentPrompt + '\n\n---\n\n' : ''}## PROTOCOLO DE ATENDIMENTO VIA WHATSAPP
 
 Você é um assistente de atendimento. Siga este protocolo rigorosamente em TODAS as interações.

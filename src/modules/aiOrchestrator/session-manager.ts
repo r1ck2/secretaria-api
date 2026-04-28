@@ -1,6 +1,8 @@
 import { FlowSession } from '../flowEngine/flowSession.entity';
 import { Customer } from '../customer/customer.entity';
+import { Appointment } from '../appointment/appointment.entity';
 import { SessionContext, HistoryEntry, LogAction } from './types';
+import { Op } from 'sequelize';
 
 export interface SessionManagerDependencies {
   logService: any;
@@ -18,8 +20,9 @@ export class SessionManager {
     phoneNumber: string;
     flowId?: string;
     professionalUserId?: string;
+    isProfessional?: boolean;
   }): Promise<FlowSession> {
-    const { phoneNumber, flowId, professionalUserId } = params;
+    const { phoneNumber, flowId, professionalUserId, isProfessional } = params;
 
     this.log(LogAction.SESSION_CREATED, 'Looking for existing session', {
       phone_number: phoneNumber,
@@ -64,6 +67,7 @@ export class SessionManager {
           flow_id: flowId || null,
           time_of_day: this.getTimeOfDay(),
           is_returning_customer: false,
+          ...(isProfessional ? { is_professional: true } : {}),
         }),
         history_json: JSON.stringify([]),
       });
@@ -165,7 +169,7 @@ export class SessionManager {
   }
 
   /**
-   * Enriquece contexto com dados do cliente
+   * Enriquece contexto com dados do cliente (ou do profissional, se is_professional: true)
    */
   async enrichContext(session: FlowSession): Promise<SessionContext> {
     this.log(LogAction.CONTEXT_ENRICHED, 'Starting context enrichment', {
@@ -175,7 +179,7 @@ export class SessionManager {
 
     try {
       const baseContext = session.getContext();
-      
+
       // Start with base context
       const enrichedContext: SessionContext = {
         phone: session.phone_number,
@@ -186,6 +190,52 @@ export class SessionManager {
         is_returning_customer: false,
         ...baseContext, // Merge existing context
       };
+
+      // ── Professional session: load professional's own upcoming appointments ──
+      if ((baseContext as any).is_professional && enrichedContext.user_id) {
+        try {
+          const now = new Date();
+          const weekEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+          const professionalAppointments = await Appointment.findAll({
+            where: {
+              user_id: enrichedContext.user_id,
+              status: 'confirmed',
+              start_at: { [Op.gte]: now, [Op.lte]: weekEnd },
+            },
+            order: [['start_at', 'ASC']],
+            limit: 20,
+            include: [{ association: 'customer', attributes: ['name', 'phone'] }],
+          });
+
+          if (professionalAppointments.length > 0) {
+            enrichedContext.appointments = professionalAppointments.map((apt: any) => ({
+              id: apt.id,
+              calendar_event_id: apt.calendar_event_id,
+              label: this.formatAppointmentLabel(apt.start_at),
+              title: apt.title || (apt.customer?.name ? `Consulta — ${apt.customer.name}` : 'Consulta'),
+              start: apt.start_at,
+              end: apt.end_at,
+            }));
+          }
+
+          // Mark as returning so AI doesn't ask for name registration
+          enrichedContext.is_returning_customer = true;
+          (enrichedContext as any).is_professional = true;
+        } catch (err) {
+          this.log(LogAction.CONTEXT_ENRICHED, 'Professional appointment lookup failed', {
+            session_id: session.id,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          });
+        }
+
+        this.log(LogAction.CONTEXT_ENRICHED, 'Professional context enrichment completed', {
+          session_id: session.id,
+          appointments_count: enrichedContext.appointments?.length || 0,
+        });
+
+        return enrichedContext;
+      }
+      // ─────────────────────────────────────────────────────────────────────────
 
       // Try to find customer by phone scoped to this professional only
       let customer: Customer | null = null;
