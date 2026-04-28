@@ -7,9 +7,20 @@ import { WhatsappConnection } from "@/modules/whatsapp/whatsapp.entity";
 import { evolutionApiService } from "@/modules/evolution/evolution.service";
 import { logService } from "@/modules/log/log.service";
 import { normalizePhoneNumber } from "@/utils/phoneNormalizer";
-import { isProfessionalOwnNumber, handleProfessionalMessage } from "@/modules/professionalFlow/professionalAssistant.service";
+import { isProfessionalOwnNumber } from "@/modules/professionalFlow/professionalAssistant.service";
+import { ProfessionalAssistantService } from "@/modules/professionalFlow/professionalAssistant.service";
+import { orchestrator as aiOrchestrator } from "@/modules/aiOrchestrator/ai-orchestrator.controller";
 
 const engineService = new FlowEngineService();
+
+// Instantiate ProfessionalAssistantService with shared singletons
+const professionalAssistantService = new ProfessionalAssistantService({
+  aiOrchestrator,
+  evolutionApiService,
+  logService: {
+    create: (data: Record<string, unknown>) => logService.create(data as any).then(() => undefined),
+  },
+});
 
 /**
  * POST /api/v1/flow/trigger
@@ -274,10 +285,6 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
       data.message?.extendedTextMessage?.text ||
       "";
 
-    if (!messageText.trim()) {
-      return res.status(200).json({ success: true, ignored: true });
-    }
-
     // Extract sender name
     const senderName: string = data.pushName || data.key?.pushName || "";
 
@@ -312,6 +319,8 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
     // ── Professional own-number check ─────────────────────────────────────────
     // If the sender is the professional themselves (secretary_phone setting),
     // route to the professional assistant flow — never touch the customer flow.
+    // NOTE: We check this BEFORE the empty-text guard so audio messages (which
+    // have no conversation text) can still reach the professional assistant.
     const isOwnNumber = await isProfessionalOwnNumber(fromNumber, flowUserId);
     if (isOwnNumber) {
       await logService.logEvolution({
@@ -322,20 +331,22 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
         metadata: { instanceName, messagePreview: messageText.slice(0, 100) },
       });
 
-      const assistantResult = await handleProfessionalMessage(messageText, flowUserId);
-
-      if (conn.evolution_instance_name && conn.evolution_instance_apikey) {
-        await evolutionApiService.sendTextMessage(
-          conn.evolution_instance_name,
-          conn.evolution_instance_apikey,
-          fromNumber,
-          assistantResult.message
-        );
-      }
+      await professionalAssistantService.handleMessage({
+        fromNumber,
+        professionalUserId: flowUserId,
+        instanceName: conn.evolution_instance_name ?? "",
+        instanceApikey: conn.evolution_instance_apikey ?? "",
+        rawPayload: payload,
+      });
 
       return res.status(200).json({ success: true, professional_flow: true });
     }
     // ─────────────────────────────────────────────────────────────────────────
+
+    // For non-professional messages, ignore if there is no text content
+    if (!messageText.trim()) {
+      return res.status(200).json({ success: true, ignored: true });
+    }
 
     const results = await engineService.receiveMessage(fromNumber, messageText, undefined, toNumber, flowUserId, senderName || undefined);
 

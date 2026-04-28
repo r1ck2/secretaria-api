@@ -29,6 +29,8 @@ const orchestrator = new AIOrchestrator({
   logService,
 });
 
+export { orchestrator };
+
 /**
  * POST /ai-orchestrator/webhook
  * Receives incoming WhatsApp messages and processes them through the AI orchestrator.
