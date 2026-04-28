@@ -112,11 +112,6 @@ export class EvolutionApiService {
     return "disconnected";
   }
 
-  /**
-   * Fetch the instance apikey from Evolution for an existing instance.
-   * Used when the instance was created outside the platform (e.g. Evolution Manager).
-   * Evolution returns the token via GET /instance/fetchInstances filtered by instanceName.
-   */
   async setWebhook(instanceName: string, instanceApikey: string, webhookUrl: string): Promise<void> {
     const { baseUrl, globalApikey } = await this.getConfig();
     const keyToUse = instanceApikey || globalApikey;
@@ -135,6 +130,48 @@ export class EvolutionApiService {
     if (!response.ok) {
       const err = await response.text();
       throw new Error(`Evolution setWebhook failed: ${response.status} — ${err}`);
+    }
+  }
+
+  /**
+   * Fetches audio/media content as base64 from Evolution API.
+   * This is the correct way to download media — plain URL fetch requires auth headers
+   * that are not available in the webhook payload.
+   */
+  async getMediaAsBase64(
+    instanceName: string,
+    instanceApikey: string,
+    messageKey: { id: string; remoteJid: string; fromMe: boolean }
+  ): Promise<{ base64: string; mimetype: string } | null> {
+    try {
+      const { baseUrl } = await this.getConfig();
+
+      const response = await fetch(
+        this.buildUrl(baseUrl, `/chat/getBase64FromMediaMessage/${instanceName}`),
+        {
+          method: "POST",
+          headers: {
+            apikey: instanceApikey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: { key: messageKey },
+            convertToMp4: false,
+          }),
+        }
+      );
+
+      if (!response.ok) return null;
+
+      const data = await response.json() as any;
+      if (!data?.base64) return null;
+
+      return {
+        base64: data.base64,
+        mimetype: data.mimetype || "audio/ogg",
+      };
+    } catch {
+      return null;
     }
   }
 

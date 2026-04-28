@@ -124,6 +124,7 @@ beforeEach(async () => {
 
   mockEvolutionApiService = {
     sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    getMediaAsBase64: vi.fn().mockResolvedValue(null),
   } as unknown as ProfessionalAssistantDependencies["evolutionApiService"];
 
   const deps: ProfessionalAssistantDependencies = {
@@ -408,7 +409,8 @@ describe("ProfessionalAssistantService", () => {
       const original = Buffer.from("Hello, World!");
       const b64 = original.toString("base64");
       const result = await service.resolveAudioBuffer({ type: "base64", value: b64, mimeType: "audio/ogg", filename: "audio.ogg" });
-      expect(result).toEqual(original);
+      expect(result.buffer).toEqual(original);
+      expect(result.mimeType).toBe("audio/ogg");
     });
 
     it("fetches URL content to Buffer", async () => {
@@ -418,8 +420,8 @@ describe("ProfessionalAssistantService", () => {
         arrayBuffer: async () => data.buffer,
       });
       const result = await service.resolveAudioBuffer({ type: "url", value: "https://example.com/audio.ogg", mimeType: "audio/ogg", filename: "audio.ogg" });
-      expect(result).toBeInstanceOf(Buffer);
-      expect(result.length).toBe(4);
+      expect(result.buffer).toBeInstanceOf(Buffer);
+      expect(result.buffer.length).toBe(4);
     });
 
     it("throws on non-2xx HTTP response", async () => {

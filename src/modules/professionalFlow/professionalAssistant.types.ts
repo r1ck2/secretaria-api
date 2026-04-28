@@ -92,6 +92,11 @@ export interface ProfessionalAssistantDependencies {
       toNumber: string,
       message: string,
     ): Promise<void>;
+    getMediaAsBase64(
+      instanceName: string,
+      instanceApikey: string,
+      messageKey: { id: string; remoteJid: string; fromMe: boolean },
+    ): Promise<{ base64: string; mimetype: string } | null>;
   };
   logService?: {
     create(data: Record<string, unknown>): Promise<void>;

@@ -319,24 +319,60 @@ export class ProfessionalAssistantService {
   // ── Task 4: Resolve audio buffer ────────────────────────────────────────────
 
   /**
-   * Downloads or decodes audio content to a Buffer.
-   * - base64: decode directly
-   * - url: fetch via HTTP (Node 18+ global fetch)
+   * Downloads audio content to a Buffer.
+   * Priority:
+   *   1. Use Evolution API getMediaAsBase64 (authenticated, always works)
+   *   2. Fall back to base64 in payload if already present
+   *   3. Fall back to plain URL fetch (may fail if auth required)
    */
-  async resolveAudioBuffer(content: AudioContent): Promise<Buffer> {
-    if (content.type === "base64") {
-      return Buffer.from(content.value, "base64");
+  async resolveAudioBuffer(
+    content: AudioContent,
+    evolutionContext?: {
+      instanceName: string;
+      instanceApikey: string;
+      messageKey: { id: string; remoteJid: string; fromMe: boolean };
+    }
+  ): Promise<{ buffer: Buffer; mimeType: string }> {
+    // 1. Try Evolution API authenticated download first
+    if (evolutionContext) {
+      console.log(`TEST 01 - [resolveAudioBuffer] trying Evolution getMediaAsBase64 | msgId=${evolutionContext.messageKey.id} | remoteJid=${evolutionContext.messageKey.remoteJid}`);
+      const media = await this.deps.evolutionApiService.getMediaAsBase64(
+        evolutionContext.instanceName,
+        evolutionContext.instanceApikey,
+        evolutionContext.messageKey
+      );
+      if (media?.base64) {
+        const normalized = media.mimetype.split(';')[0].trim() || 'audio/ogg';
+        const buf = Buffer.from(media.base64, 'base64');
+        console.log(`TEST 01 - [resolveAudioBuffer] Evolution getMediaAsBase64 SUCCESS | size=${buf.length} bytes | mimetype="${media.mimetype}" | normalized="${normalized}"`);
+        return { buffer: buf, mimeType: normalized };
+      } else {
+        console.log(`TEST 01 - [resolveAudioBuffer] Evolution getMediaAsBase64 returned null/empty — falling back`);
+      }
+    } else {
+      console.log(`TEST 01 - [resolveAudioBuffer] no evolutionContext provided — skipping authenticated download`);
     }
 
-    // URL fetch
+    // 2. Fall back to payload content
+    if (content.type === "base64") {
+      const buf = Buffer.from(content.value, "base64");
+      console.log(`TEST 01 - [resolveAudioBuffer] using payload base64 | size=${buf.length} bytes | mimeType="${content.mimeType}"`);
+      return { buffer: buf, mimeType: content.mimeType };
+    }
+
+    // 3. Plain URL fetch (last resort)
+    console.log(`TEST 01 - [resolveAudioBuffer] fetching URL (no auth) | url="${content.value.slice(0, 100)}"`);
     const response = await fetch(content.value);
     if (!response.ok) {
+      console.log(`TEST 01 - [resolveAudioBuffer] URL fetch FAILED | status=${response.status} ${response.statusText}`);
       throw new Error(
         `Falha ao baixar áudio: HTTP ${response.status} ${response.statusText}`
       );
     }
     const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
+    const buf = Buffer.from(arrayBuffer);
+    console.log(`TEST 01 - [resolveAudioBuffer] URL fetch SUCCESS | size=${buf.length} bytes | mimeType="${content.mimeType}"`);
+    return { buffer: buf, mimeType: content.mimeType };
   }
 
   // ── Task 5: Transcribe audio via Whisper ────────────────────────────────────
@@ -350,7 +386,6 @@ export class ProfessionalAssistantService {
     const { spawn } = await import("child_process");
 
     return new Promise((resolve) => {
-      // Determine input format hint for ffmpeg
       const mimeToFormat: Record<string, string> = {
         "audio/ogg": "ogg",
         "audio/mpeg": "mp3",
@@ -360,10 +395,11 @@ export class ProfessionalAssistantService {
       };
       const inputFormat = mimeToFormat[inputMime] || "ogg";
 
+      console.log(`TEST 01 - [convertToMp3] starting | inputMime="${inputMime}" | inputFormat="${inputFormat}" | inputSize=${buffer.length} bytes`);
+
       const chunks: Buffer[] = [];
       const errChunks: Buffer[] = [];
 
-      // ffmpeg: read from stdin, output mp3 to stdout
       const ff = spawn("ffmpeg", [
         "-f", inputFormat,
         "-i", "pipe:0",
@@ -380,15 +416,18 @@ export class ProfessionalAssistantService {
 
       ff.on("close", (code) => {
         if (code === 0 && chunks.length > 0) {
-          resolve({ buffer: Buffer.concat(chunks), mimeType: "audio/mpeg" });
+          const converted = Buffer.concat(chunks);
+          console.log(`TEST 01 - [convertToMp3] SUCCESS | exitCode=${code} | outputSize=${converted.length} bytes | outputMime="audio/mpeg"`);
+          resolve({ buffer: converted, mimeType: "audio/mpeg" });
         } else {
-          // ffmpeg failed or not available — return original buffer unchanged
+          const ffmpegErr = Buffer.concat(errChunks).toString().slice(0, 300);
+          console.log(`TEST 01 - [convertToMp3] FAILED or ffmpeg unavailable | exitCode=${code} | stderr="${ffmpegErr}" — falling back to original buffer`);
           resolve({ buffer, mimeType: inputMime });
         }
       });
 
-      ff.on("error", () => {
-        // ffmpeg not installed — return original buffer unchanged
+      ff.on("error", (err) => {
+        console.log(`TEST 01 - [convertToMp3] ffmpeg spawn ERROR: ${err.message} — falling back to original buffer`);
         resolve({ buffer, mimeType: inputMime });
       });
 
@@ -413,7 +452,6 @@ export class ProfessionalAssistantService {
     const normalizedMime = mimeType.split(';')[0].trim() || 'audio/ogg';
 
     // Convert to MP3 for maximum Whisper compatibility
-    // WhatsApp OGG/Opus is technically supported but often rejected due to container issues
     const { buffer: convertedBuffer, mimeType: convertedMime } = await this.convertToMp3(buffer, normalizedMime);
 
     // Derive filename from final MIME type
@@ -425,6 +463,8 @@ export class ProfessionalAssistantService {
       "audio/wav": "audio.wav",
     };
     const filename = mimeToExt[convertedMime] || "audio.mp3";
+
+    console.log(`TEST 01 - [transcribeAudio] sending to Whisper | filename="${filename}" | mimeType="${convertedMime}" | size=${convertedBuffer.length} bytes`);
 
     const file = new File([convertedBuffer], filename, { type: convertedMime });
 
@@ -469,10 +509,16 @@ export class ProfessionalAssistantService {
     let messageText: string;
 
     // 2. Check if audio message
-    if (this.isAudioMessage(params.rawPayload)) {
+    const isAudio = this.isAudioMessage(params.rawPayload);
+    console.log(`TEST 01 - [handleMessage] isAudio=${isAudio} | fromNumber=${params.fromNumber} | messageKeys=${JSON.stringify(Object.keys(params.rawPayload.data?.message || {}))}`);
+
+    if (isAudio) {
       // Audio path
       const audioContent = this.extractAudioContent(params.rawPayload);
+      console.log(`TEST 01 - [extractAudioContent] result=${JSON.stringify(audioContent ? { type: audioContent.type, mimeType: audioContent.mimeType, filename: audioContent.filename, valueLength: audioContent.value?.length ?? 0 } : null)}`);
+
       if (!audioContent) {
+        console.log(`TEST 01 - [extractAudioContent] FAILED — no audio content found in payload`);
         await sendError(
           "Não foi possível baixar o áudio. Tente novamente ou envie uma mensagem de texto."
         );
@@ -481,18 +527,37 @@ export class ProfessionalAssistantService {
 
       // Check MIME type is supported (normalize first to strip codec suffix)
       const normalizedMime = audioContent.mimeType.split(';')[0].trim();
+      console.log(`TEST 01 - [mimeCheck] rawMime="${audioContent.mimeType}" | normalizedMime="${normalizedMime}" | supported=${(SUPPORTED_AUDIO_MIME_TYPES as readonly string[]).includes(normalizedMime)}`);
+
       if (!(SUPPORTED_AUDIO_MIME_TYPES as readonly string[]).includes(normalizedMime as any)) {
+        console.log(`TEST 01 - [mimeCheck] REJECTED — unsupported MIME type: ${normalizedMime}`);
         await sendError(
           "Formato de áudio não suportado. Envie áudios em formato OGG, MP3, MP4, WebM ou WAV."
         );
         return;
       }
 
-      // Download audio
+      // Download audio via Evolution API (authenticated) with fallback to payload content
       let audioBuffer: Buffer;
+      let resolvedMime: string = normalizedMime;
       try {
-        audioBuffer = await this.resolveAudioBuffer(audioContent);
+        const messageKey = params.rawPayload.data?.key;
+        console.log(`TEST 01 - [resolveAudioBuffer] starting | messageKey=${JSON.stringify(messageKey)} | instanceName=${params.instanceName}`);
+
+        const result = await this.resolveAudioBuffer(audioContent, messageKey ? {
+          instanceName: params.instanceName,
+          instanceApikey: params.instanceApikey,
+          messageKey: {
+            id: messageKey.id,
+            remoteJid: messageKey.remoteJid,
+            fromMe: messageKey.fromMe,
+          },
+        } : undefined);
+        audioBuffer = result.buffer;
+        resolvedMime = result.mimeType.split(';')[0].trim() || normalizedMime;
+        console.log(`TEST 01 - [resolveAudioBuffer] SUCCESS | bufferSize=${audioBuffer.length} bytes | resolvedMime="${resolvedMime}"`);
       } catch (err) {
+        console.log(`TEST 01 - [resolveAudioBuffer] ERROR: ${(err as Error).message}`);
         this.logError("audio_download_failed", err as Error, params);
         await sendError(
           "Não foi possível baixar o áudio. Tente novamente ou envie uma mensagem de texto."
@@ -500,11 +565,15 @@ export class ProfessionalAssistantService {
         return;
       }
 
-      // Transcribe (with automatic MP3 conversion via ffmpeg)
+      // Convert to MP3 via ffmpeg (logged inside convertToMp3)
+      // Transcribe via Whisper
       let transcription: string;
       try {
-        transcription = await this.transcribeAudio(audioBuffer, normalizedMime, apiKey);
+        console.log(`TEST 01 - [transcribeAudio] starting | bufferSize=${audioBuffer.length} | mimeType="${resolvedMime}"`);
+        transcription = await this.transcribeAudio(audioBuffer, resolvedMime, apiKey);
+        console.log(`TEST 01 - [transcribeAudio] SUCCESS | transcription="${transcription.slice(0, 200)}"`);
       } catch (err) {
+        console.log(`TEST 01 - [transcribeAudio] ERROR: ${(err as Error).message}`);
         this.logError("whisper_failed", err as Error, params);
         await sendError(
           "Não foi possível transcrever o áudio. Tente novamente ou envie uma mensagem de texto."
@@ -514,6 +583,7 @@ export class ProfessionalAssistantService {
 
       // Blank transcription check
       if (!transcription.trim()) {
+        console.log(`TEST 01 - [transcribeAudio] BLANK transcription — sending error to professional`);
         await sendError(
           "Não consegui entender o áudio. Poderia repetir ou enviar uma mensagem de texto?"
         );
@@ -521,21 +591,19 @@ export class ProfessionalAssistantService {
       }
 
       messageText = "[Áudio transcrito] " + transcription;
+      console.log(`TEST 01 - [handleMessage] audio pipeline complete | messageText="${messageText.slice(0, 200)}"`);
     } else {
       // Text path
       messageText =
         params.rawPayload.data.message?.conversation ||
         params.rawPayload.data.message?.extendedTextMessage?.text ||
         "";
+      console.log(`TEST 01 - [handleMessage] text message | messageText="${messageText.slice(0, 200)}"`);
     }
 
-    // 3. Call AIOrchestrator and capture the response text directly
-    // We pass isProfessional: true to skip the isCustomerBlocked check.
-    // After the orchestrator runs, we send the response directly using the
-    // instance credentials we already have — this avoids a second DB lookup
-    // for the WhatsApp connection and ensures delivery even if the connection
-    // status field is stale.
+    // 3. Call AIOrchestrator
     try {
+      console.log(`TEST 01 - [aiOrchestrator] calling receiveMessage | phone=${params.fromNumber} | messagePreview="${messageText.slice(0, 100)}"`);
       await this.deps.aiOrchestrator.receiveMessage({
         phoneNumber: params.fromNumber,
         message: messageText,
@@ -545,7 +613,9 @@ export class ProfessionalAssistantService {
         evolutionInstanceName: params.instanceName,
         evolutionInstanceApikey: params.instanceApikey,
       });
+      console.log(`TEST 01 - [aiOrchestrator] receiveMessage completed successfully`);
     } catch (err) {
+      console.log(`TEST 01 - [aiOrchestrator] ERROR: ${(err as Error).message}`);
       this.logError("orchestrator_failed", err as Error, params);
       await sendError(
         "Desculpe, ocorreu um erro ao processar sua mensagem. Tente novamente em instantes."
