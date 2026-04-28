@@ -10,6 +10,7 @@ import { normalizePhoneNumber } from "@/utils/phoneNormalizer";
 import { isProfessionalOwnNumber } from "@/modules/professionalFlow/professionalAssistant.service";
 import { ProfessionalAssistantService } from "@/modules/professionalFlow/professionalAssistant.service";
 import { orchestrator as aiOrchestrator } from "@/modules/aiOrchestrator/ai-orchestrator.controller";
+import { isEchoFromProfessional } from "@/modules/flowEngine/professionalEchoDedup";
 
 const engineService = new FlowEngineService();
 
@@ -323,34 +324,20 @@ export async function triggerFlowEvolution(req: Request, res: Response) {
     // have no conversation text) can still reach the professional assistant.
     const isOwnNumber = await isProfessionalOwnNumber(fromNumber, flowUserId);
     if (isOwnNumber) {
-      // ── Echo detection ──────────────────────────────────────────────────────
-      // When the AI sends a response back to the professional's own number,
-      // Evolution API fires a second MESSAGES_UPSERT webhook for that delivery.
-      // This echo arrives with fromMe: false (self-message delivery) and contains
-      // the exact text the AI just sent. We detect and drop it by checking if
-      // the incoming text matches the last assistant message in the active session.
-      if (messageText.trim()) {
-        const activeSession = await FlowSession.findOne({
-          where: {
-            phone_number: fromNumber.replace(/\D/g, ""),
-            status: ["active", "waiting_input"],
-          },
-          order: [["updated_at", "DESC"]],
+      // ── Echo detection (in-memory, race-condition-free) ─────────────────────
+      // When the AI sends a response to the professional's own number, Evolution
+      // fires a second MESSAGES_UPSERT webhook for that delivery (fromMe: false).
+      // We check the in-memory set populated by markSentToProfessional() which
+      // is called right before sendWhatsApp — no DB race condition.
+      if (messageText.trim() && isEchoFromProfessional(fromNumber, messageText)) {
+        await logService.logEvolution({
+          action: "professional_echo_ignored",
+          message: `🔇 Echo da resposta da IA ignorado para ${fromNumber}`,
+          phone_number: fromNumber,
+          user_id: flowUserId,
+          metadata: { instanceName, preview: messageText.slice(0, 80) },
         });
-        if (activeSession) {
-          const history: any[] = activeSession.getHistory() || [];
-          const lastAssistant = [...history].reverse().find((h: any) => h.role === "assistant");
-          if (lastAssistant?.content && lastAssistant.content.trim() === messageText.trim()) {
-            await logService.logEvolution({
-              action: "professional_echo_ignored",
-              message: `🔇 Echo da resposta da IA ignorado para ${fromNumber}`,
-              phone_number: fromNumber,
-              user_id: flowUserId,
-              metadata: { instanceName, preview: messageText.slice(0, 80) },
-            });
-            return res.status(200).json({ success: true, ignored: true, reason: "ai_echo" });
-          }
-        }
+        return res.status(200).json({ success: true, ignored: true, reason: "ai_echo" });
       }
       // ────────────────────────────────────────────────────────────────────────
 

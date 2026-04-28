@@ -19,7 +19,7 @@ import { EvolutionApiService } from '../evolution/evolution.service';
 import { LogService } from '../log/log.service';
 import { WhatsappConnection } from '../whatsapp/whatsapp.entity';
 import { FlowSession } from '../flowEngine/flowSession.entity';
-
+import { markSentToProfessional } from '../flowEngine/professionalEchoDedup';
 export interface ReceiveMessageParams {
   phoneNumber: string;
   message: string;
@@ -514,6 +514,13 @@ ${contextString}`;
 
         instName = conn.evolution_instance_name;
         instKey = conn.evolution_instance_apikey;
+      }
+
+      // Register this message in the echo dedup set BEFORE sending.
+      // When instance credentials were passed directly it means this is a
+      // professional-flow call — the response will echo back as a webhook.
+      if (instanceName && instanceApikey) {
+        markSentToProfessional(toPhone, text);
       }
 
       await this.deps.evolutionApiService.sendTextMessage(
